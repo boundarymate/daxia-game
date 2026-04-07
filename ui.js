@@ -311,8 +311,7 @@ const UI = {
     const ending = Engine.checkEnding();
     if (ending) this.showEnding(ending);
 
-    // 检查随机事件
-    this.checkRandomEvent();
+    // 随机事件由行动触发，不在 render 中检查
   },
 
   renderStatBars() {
@@ -733,17 +732,20 @@ const UI = {
     const result = Engine.doQuest(questId);
     if (!result.success) { this.toast(result.msg); return; }
     this.render();
+    this._maybeRandomEvent();
   },
 
   talkToNPC(npcId) {
     const result = Engine.talkToNPC(npcId);
     if (!result.success) return;
     this.render();
+    this._maybeRandomEvent();
   },
 
   fightNPC(npcId) {
     const result = Engine.fight(npcId);
     this.render();
+    this._maybeRandomEvent();
   },
 
   recruitNPC(npcId) {
@@ -798,14 +800,17 @@ const UI = {
 
   // ── 随机事件 ─────────────────────────────────────────────
   checkRandomEvent() {
-    if (this.pendingEvent) {
-      this.showEventModal(this.pendingEvent);
-      this.pendingEvent = null;
-    }
+    // 已废弃：不再在 render() 中触发事件，避免弹窗叠加
   },
 
   triggerEvent(event) {
-    this.pendingEvent = event;
+    // 如果事件弹窗已经在显示，则排队等待
+    const modal = document.getElementById('event-modal');
+    if (modal && modal.style.display !== 'none') {
+      this._eventQueue = this._eventQueue || [];
+      this._eventQueue.push(event);
+      return;
+    }
     this.showEventModal(event);
   },
 
@@ -835,6 +840,11 @@ const UI = {
       this.toast(result.choice.result.substring(0, 30) + '...');
     }
     this.render();
+    // 处理排队中的事件
+    if (this._eventQueue && this._eventQueue.length > 0) {
+      const next = this._eventQueue.shift();
+      setTimeout(() => this.showEventModal(next), 300);
+    }
   },
 
   // ── 结局 ─────────────────────────────────────────────────
@@ -870,6 +880,16 @@ const UI = {
     this._toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
   },
 
+  // ── 辅助：行动后随机触发事件（安全，不叠弹窗） ───────────────
+  _maybeRandomEvent() {
+    if (Math.random() < 0.3) {
+      const event = Engine._triggerRandomEvent();
+      if (event) {
+        setTimeout(() => UI.triggerEvent(event), 400);
+      }
+    }
+  },
+
   // ── 辅助：bonus字符串 ─────────────────────────────────────
   _bonusStr(bonus) {
     const nameMap = {
@@ -890,12 +910,9 @@ const UI = {
 const _origDoAction = Engine.doAction.bind(Engine);
 Engine.doAction = function(actionId, params) {
   const result = _origDoAction(actionId, params);
-  // 行动后有概率触发随机事件（排除事件处理本身）
-  if (actionId !== 'event_choice' && Math.random() < 0.3) {
-    const event = Engine._triggerRandomEvent();
-    if (event) {
-      setTimeout(() => UI.triggerEvent(event), 400);
-    }
+  // 行动后有概率触发随机事件（统一走 triggerEvent，自动排队不叠弹窗）
+  if (actionId !== 'event_choice') {
+    UI._maybeRandomEvent();
   }
   return result;
 };

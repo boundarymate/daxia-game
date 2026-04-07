@@ -4,18 +4,38 @@
 
 const UI = {
 
-  selectedTraits: [],
-  selectedBgs: [],
+  selectedTraits: [],      // 已选人物特质 id 列表
+  selectedBgs: {},         // 已选背景特质 { tag: id }，每类只能选一个
   selectedGender: 'male',
   currentTab: 'actions',
   pendingEvent: null,
+  traitCatFilter: '全部',  // 当前人物特质分类筛选
+  bgCatFilter: '出身',     // 当前背景特质分类筛选
+  INIT_POINTS: 20,         // 初始点数
+
+  // ── 计算当前剩余点数 ──────────────────────────────────────
+  calcPoints() {
+    let pts = this.INIT_POINTS;
+    this.selectedTraits.forEach(id => {
+      const t = DATA.TRAITS.find(x => x.id === id);
+      if (t) pts -= t.cost;
+    });
+    Object.values(this.selectedBgs).forEach(id => {
+      const b = DATA.BACKGROUNDS.find(x => x.id === id);
+      if (b) pts -= b.cost;
+    });
+    return pts;
+  },
 
   // ── 显示创建界面 ──────────────────────────────────────────
   showCreate() {
     document.getElementById('start-screen').style.display = 'none';
     document.getElementById('create-screen').style.display = 'block';
+    this.renderTraitCategoryTabs();
     this.renderTraitGrid();
+    this.renderBgCategoryTabs();
     this.renderBgGrid();
+    this.updatePointDisplay();
     this.updateAttrPreview();
   },
 
@@ -25,79 +45,173 @@ const UI = {
     document.getElementById('btn-female').classList.toggle('active', g === 'female');
   },
 
-  renderTraitGrid() {
-    const grid = document.getElementById('trait-grid');
-    grid.innerHTML = DATA.TRAITS.map(t => `
-      <div class="trait-card" id="tc_${t.id}" onclick="UI.toggleTrait('${t.id}')">
-        <div class="trait-name">${t.name}</div>
-        <div class="trait-desc">${t.desc}</div>
-        <div class="trait-bonus">${this._bonusStr(t.bonus)}</div>
-      </div>
-    `).join('');
+  // ── 人物特质分类标签 ──────────────────────────────────────
+  renderTraitCategoryTabs() {
+    const cats = ['全部', ...new Set(DATA.TRAITS.map(t => t.tag))];
+    document.getElementById('trait-tabs').innerHTML = cats.map(cat => {
+      const count = this.selectedTraits.filter(id => {
+        const t = DATA.TRAITS.find(x => x.id === id);
+        return cat === '全部' || (t && t.tag === cat);
+      }).length;
+      return `<button class="cat-tab ${this.traitCatFilter === cat ? 'active' : ''}" onclick="UI.setTraitCat('${cat}')">
+        ${cat}<span class="cat-count">${count > 0 ? count : ''}</span>
+      </button>`;
+    }).join('');
   },
 
-  renderBgGrid() {
-    const grid = document.getElementById('bg-grid');
-    grid.innerHTML = DATA.BACKGROUNDS.map(b => `
-      <div class="trait-card" id="bc_${b.id}" onclick="UI.toggleBg('${b.id}')">
-        <div class="trait-name">${b.name}</div>
-        <div class="trait-desc">${b.desc}</div>
-        <div class="trait-bonus">${this._bonusStr(b.bonus)}</div>
-      </div>
-    `).join('');
+  setTraitCat(cat) {
+    this.traitCatFilter = cat;
+    this.renderTraitCategoryTabs();
+    this.renderTraitGrid();
+  },
+
+  // ── 渲染人物特质卡片 ──────────────────────────────────────
+  renderTraitGrid() {
+    const pts = this.calcPoints();
+    const filtered = DATA.TRAITS.filter(t =>
+      this.traitCatFilter === '全部' || t.tag === this.traitCatFilter
+    );
+    document.getElementById('trait-grid').innerHTML = filtered.map(t => {
+      const isPos = t.cost > 0;
+      const isNeg = t.cost < 0;
+      const selected = this.selectedTraits.includes(t.id);
+      // 点数不足时禁用正面特质（但已选的不禁用）
+      const wouldCost = t.cost - (selected ? t.cost : 0);
+      const disabled = isPos && !selected && pts < t.cost;
+      const costLabel = isPos ? `-${t.cost}` : `+${Math.abs(t.cost)}`;
+      const costCls = isPos ? 'cost-pos' : 'cost-neg';
+      const cardCls = [
+        'trait-card',
+        isNeg ? 'negative' : 'positive',
+        selected ? 'selected' : '',
+        disabled ? 'disabled' : '',
+      ].filter(Boolean).join(' ');
+      return `
+        <div class="${cardCls}" id="tc_${t.id}" onclick="UI.toggleTrait('${t.id}')">
+          <span class="trait-cost-badge ${costCls}">${costLabel}</span>
+          <div class="trait-name" style="padding-right:36px;">${t.name}</div>
+          <div class="trait-desc">${t.desc}</div>
+          <div class="trait-bonus">${this._bonusStr(t.bonus)}</div>
+        </div>`;
+    }).join('');
   },
 
   toggleTrait(id) {
+    const t = DATA.TRAITS.find(x => x.id === id);
+    if (!t) return;
     const idx = this.selectedTraits.indexOf(id);
     if (idx >= 0) {
+      // 取消选择
       this.selectedTraits.splice(idx, 1);
     } else {
-      if (this.selectedTraits.length >= 5) {
-        this.toast('最多选择5个人物特质');
+      // 检查点数是否足够
+      const pts = this.calcPoints();
+      if (t.cost > 0 && pts < t.cost) {
+        this.toast(`点数不足！需要 ${t.cost} 点，剩余 ${pts} 点`);
         return;
       }
       this.selectedTraits.push(id);
     }
-    document.querySelectorAll('[id^="tc_"]').forEach(el => {
-      const tid = el.id.replace('tc_', '');
-      el.classList.toggle('selected', this.selectedTraits.includes(tid));
-      el.classList.toggle('disabled', !this.selectedTraits.includes(tid) && this.selectedTraits.length >= 5);
-    });
-    document.getElementById('trait-count').textContent = this.selectedTraits.length;
+    this.renderTraitCategoryTabs();
+    this.renderTraitGrid();
+    this.updatePointDisplay();
     this.updateAttrPreview();
   },
 
+  // ── 背景特质分类标签 ──────────────────────────────────────
+  renderBgCategoryTabs() {
+    const cats = ['出身', '经历', '际遇'];
+    document.getElementById('bg-tabs').innerHTML = cats.map(cat => {
+      const selected = this.selectedBgs[cat];
+      const selName = selected ? DATA.BACKGROUNDS.find(x => x.id === selected)?.name : '';
+      return `<button class="cat-tab ${this.bgCatFilter === cat ? 'active' : ''}" onclick="UI.setBgCat('${cat}')">
+        ${cat}${selName ? `<span class="cat-count"> · ${selName}</span>` : ''}
+      </button>`;
+    }).join('');
+  },
+
+  setBgCat(cat) {
+    this.bgCatFilter = cat;
+    this.renderBgCategoryTabs();
+    this.renderBgGrid();
+  },
+
+  // ── 渲染背景特质卡片 ──────────────────────────────────────
+  renderBgGrid() {
+    const pts = this.calcPoints();
+    const filtered = DATA.BACKGROUNDS.filter(b => b.tag === this.bgCatFilter);
+    document.getElementById('bg-grid').innerHTML = filtered.map(b => {
+      const isPos = b.cost > 0;
+      const selected = this.selectedBgs[b.tag] === b.id;
+      const disabled = isPos && !selected && pts < b.cost;
+      const costLabel = isPos ? `-${b.cost}` : `+${Math.abs(b.cost)}`;
+      const costCls = isPos ? 'cost-pos' : 'cost-neg';
+      const cardCls = [
+        'trait-card',
+        b.cost < 0 ? 'negative' : 'positive',
+        selected ? 'selected' : '',
+        disabled ? 'disabled' : '',
+      ].filter(Boolean).join(' ');
+      return `
+        <div class="${cardCls}" id="bc_${b.id}" onclick="UI.toggleBg('${b.id}')">
+          <span class="trait-cost-badge ${costCls}">${costLabel}</span>
+          <div class="trait-name" style="padding-right:36px;">${b.name}</div>
+          <div class="trait-desc">${b.desc}</div>
+          <div class="trait-bonus">${this._bonusStr(b.bonus)}</div>
+        </div>`;
+    }).join('');
+  },
+
   toggleBg(id) {
-    const idx = this.selectedBgs.indexOf(id);
-    if (idx >= 0) {
-      this.selectedBgs.splice(idx, 1);
+    const b = DATA.BACKGROUNDS.find(x => x.id === id);
+    if (!b) return;
+    // 同类已选则取消，否则替换
+    if (this.selectedBgs[b.tag] === id) {
+      delete this.selectedBgs[b.tag];
     } else {
-      if (this.selectedBgs.length >= 3) {
-        this.toast('最多选择3个背景特质');
+      // 检查点数（先退还旧的，再花费新的）
+      const oldId = this.selectedBgs[b.tag];
+      const oldCost = oldId ? (DATA.BACKGROUNDS.find(x => x.id === oldId)?.cost || 0) : 0;
+      const pts = this.calcPoints() + oldCost; // 退还旧的后的点数
+      if (b.cost > 0 && pts < b.cost) {
+        this.toast(`点数不足！需要 ${b.cost} 点，退还旧选择后剩余 ${pts} 点`);
         return;
       }
-      this.selectedBgs.push(id);
+      this.selectedBgs[b.tag] = id;
     }
-    document.querySelectorAll('[id^="bc_"]').forEach(el => {
-      const bid = el.id.replace('bc_', '');
-      el.classList.toggle('selected', this.selectedBgs.includes(bid));
-      el.classList.toggle('disabled', !this.selectedBgs.includes(bid) && this.selectedBgs.length >= 3);
-    });
-    document.getElementById('bg-count').textContent = this.selectedBgs.length;
+    this.renderBgCategoryTabs();
+    this.renderBgGrid();
+    this.updatePointDisplay();
     this.updateAttrPreview();
+  },
+
+  // ── 更新分数显示 ──────────────────────────────────────────
+  updatePointDisplay() {
+    const pts = this.calcPoints();
+    const el = document.getElementById('point-value');
+    el.textContent = pts;
+    el.className = 'point-value' + (pts < 0 ? ' danger' : pts === 0 ? ' zero' : '');
+    // 确认按钮状态
+    const btn = document.getElementById('confirm-btn');
+    if (btn) {
+      const bgSelected = Object.keys(this.selectedBgs).length;
+      const canConfirm = pts >= 0 && bgSelected === 3;
+      btn.disabled = !canConfirm;
+      btn.title = !canConfirm ? (pts < 0 ? '点数超支！' : '请为出身、经历、际遇各选一个背景特质') : '';
+    }
   },
 
   updateAttrPreview() {
     const base = {
       hp:100, innerPower:10, strength:10, agility:10,
       endurance:10, perception:10, charm:10, swordSkill:0,
-      luck:10, gold:50, morality:50
+      speed:10, luck:10, gold:50, morality:50
     };
     this.selectedTraits.forEach(tid => {
       const t = DATA.TRAITS.find(x => x.id === tid);
       if (t) Object.keys(t.bonus).forEach(k => { if (k in base) base[k] += t.bonus[k]; });
     });
-    this.selectedBgs.forEach(bid => {
+    Object.values(this.selectedBgs).forEach(bid => {
       const b = DATA.BACKGROUNDS.find(x => x.id === bid);
       if (b) Object.keys(b.bonus).forEach(k => { if (k in base) base[k] += b.bonus[k]; });
     });
@@ -108,20 +222,30 @@ const UI = {
       luck:'运气', gold:'银两', morality:'道德'
     };
     const preview = document.getElementById('attr-preview');
-    preview.innerHTML = Object.entries(labels).map(([k, label]) => `
-      <div style="background:var(--bg-card);border:1px solid var(--border);padding:8px;border-radius:2px;text-align:center;">
-        <div style="font-size:10px;color:var(--text-muted);">${label}</div>
-        <div style="font-size:16px;color:var(--gold-light);margin-top:2px;">${Math.max(0, base[k] || 0)}</div>
-      </div>
-    `).join('');
+    preview.innerHTML = Object.entries(labels).map(([k, label]) => {
+      const val = Math.max(0, base[k] || 0);
+      const isLow = val < 10;
+      const isHigh = val > 50;
+      const color = isHigh ? 'var(--gold-light)' : isLow ? 'var(--red-light)' : 'var(--text)';
+      return `
+        <div style="background:var(--bg-card);border:1px solid var(--border);padding:8px 6px;border-radius:2px;text-align:center;">
+          <div style="font-size:10px;color:var(--text-muted);">${label}</div>
+          <div style="font-size:17px;color:${color};margin-top:2px;font-weight:700;">${val}</div>
+        </div>`;
+    }).join('');
   },
 
   confirmCreate() {
     const name = document.getElementById('char-name').value.trim() || '无名侠客';
-    if (this.selectedTraits.length < 5) { this.toast('请选择5个人物特质'); return; }
-    if (this.selectedBgs.length < 3) { this.toast('请选择3个背景特质'); return; }
+    const pts = this.calcPoints();
+    if (pts < 0) { this.toast('点数超支，请调整特质选择'); return; }
+    const bgTags = Object.keys(this.selectedBgs);
+    if (!bgTags.includes('出身')) { this.toast('请选择一个出身背景'); return; }
+    if (!bgTags.includes('经历')) { this.toast('请选择一个经历背景'); return; }
+    if (!bgTags.includes('际遇')) { this.toast('请选择一个际遇背景'); return; }
 
-    Engine.newGame(name, this.selectedGender, this.selectedTraits, this.selectedBgs);
+    const allSelected = [...this.selectedTraits, ...Object.values(this.selectedBgs)];
+    Engine.newGame(name, this.selectedGender, this.selectedTraits, Object.values(this.selectedBgs));
     document.getElementById('create-screen').style.display = 'none';
     document.getElementById('game-screen').classList.add('active');
     this.render();

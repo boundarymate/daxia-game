@@ -136,6 +136,70 @@ body {
   margin-top:24px; transition:all .2s;
 }
 .create-confirm-btn:hover { background:rgba(200,168,74,0.25); }
+.create-confirm-btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+/* 分数面板 */
+#point-panel {
+  position:sticky; top:0; z-index:10;
+  background:var(--bg-panel);
+  border:1px solid var(--gold);
+  border-radius:3px; padding:12px 20px;
+  display:flex; align-items:center; gap:16px;
+  margin-bottom:20px;
+  box-shadow:0 2px 16px rgba(0,0,0,0.5);
+}
+.point-label { font-size:13px; color:var(--text-dim); letter-spacing:2px; }
+.point-value {
+  font-size:32px; font-weight:900; color:var(--gold-light);
+  min-width:48px; text-align:center;
+  transition:color .2s, transform .15s;
+}
+.point-value.danger { color:var(--red-light); }
+.point-value.zero   { color:var(--green-light); }
+.point-hint { font-size:11px; color:var(--text-muted); flex:1; }
+
+/* 分类标签 */
+.trait-category-tabs {
+  display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;
+}
+.cat-tab {
+  padding:4px 14px; border:1px solid var(--border);
+  color:var(--text-dim); font-size:12px; border-radius:12px;
+  cursor:pointer; transition:all .2s;
+}
+.cat-tab:hover { border-color:var(--border-h); color:var(--text); }
+.cat-tab.active { border-color:var(--gold); color:var(--gold-light); background:var(--gold-dim); }
+.cat-tab .cat-count { font-size:10px; color:var(--text-muted); margin-left:3px; }
+.cat-tab.active .cat-count { color:var(--gold); }
+
+/* 特质卡片改版 */
+.trait-card {
+  background:var(--bg-card); border:1px solid var(--border);
+  padding:10px 12px; border-radius:2px; cursor:pointer; transition:all .2s;
+  position:relative;
+}
+.trait-card:hover { border-color:var(--border-h); background:var(--bg-hover); }
+.trait-card.selected.positive { border-color:var(--gold); background:rgba(200,168,74,0.1); }
+.trait-card.selected.negative { border-color:var(--red-light); background:rgba(192,57,43,0.1); }
+.trait-card.disabled { opacity:0.35; cursor:not-allowed; pointer-events:none; }
+.trait-name { font-size:14px; color:var(--gold-light); margin-bottom:3px; }
+.trait-card.negative .trait-name { color:#e88; }
+.trait-desc { font-size:11px; color:var(--text-dim); line-height:1.5; }
+.trait-bonus { font-size:11px; color:var(--green-light); margin-top:4px; }
+.trait-card.negative .trait-bonus { color:#f88; }
+.trait-cost-badge {
+  position:absolute; top:8px; right:8px;
+  font-size:12px; font-weight:700; padding:2px 7px;
+  border-radius:10px; line-height:1.4;
+}
+.cost-pos { background:rgba(200,168,74,0.2); color:var(--gold-light); border:1px solid var(--gold-dim); }
+.cost-neg { background:rgba(192,57,43,0.2); color:#f99; border:1px solid rgba(192,57,43,0.3); }
+.bg-tag-badge {
+  display:inline-block; font-size:10px; padding:1px 6px;
+  border-radius:8px; margin-bottom:4px;
+  background:rgba(52,152,219,0.15); color:var(--blue-light);
+  border:1px solid rgba(52,152,219,0.25);
+}
 
 /* ===== 主游戏界面 ===== */
 #game-screen {
@@ -469,7 +533,7 @@ body {
     <div class="create-title">创建人物</div>
     <div class="create-sub">你的选择，决定了你在江湖中的起点</div>
 
-    <!-- 姓名性别 -->
+    <!-- 姓名性别 + 分数显示 -->
     <div class="create-section">
       <div class="create-section-title">基本信息</div>
       <div class="name-row">
@@ -479,27 +543,34 @@ body {
       </div>
     </div>
 
-    <!-- 人物特质 -->
-    <div class="create-section">
-      <div class="create-section-title">人物特质（选5个）</div>
-      <div class="trait-grid" id="trait-grid"></div>
-      <div class="trait-count">已选 <span id="trait-count">0</span> / 5</div>
+    <!-- 分数面板（固定在顶部） -->
+    <div id="point-panel">
+      <div class="point-label">剩余点数</div>
+      <div class="point-value" id="point-value">20</div>
+      <div class="point-hint">正面特质消耗点数，负面特质返还点数，最终点数须 ≥ 0</div>
     </div>
 
-    <!-- 背景特质 -->
+    <!-- 人物特质（分类展示） -->
     <div class="create-section">
-      <div class="create-section-title">背景特质（选3个）</div>
+      <div class="create-section-title">人物特质 <span style="font-size:11px;color:var(--text-muted);font-weight:normal;letter-spacing:0;">（可自由选择，无数量限制）</span></div>
+      <div id="trait-tabs" class="trait-category-tabs"></div>
+      <div class="trait-grid" id="trait-grid"></div>
+    </div>
+
+    <!-- 背景特质（三类各选一个） -->
+    <div class="create-section">
+      <div class="create-section-title">背景特质 <span style="font-size:11px;color:var(--text-muted);font-weight:normal;letter-spacing:0;">（出身 / 经历 / 际遇 各选一个）</span></div>
+      <div id="bg-tabs" class="trait-category-tabs"></div>
       <div class="trait-grid" id="bg-grid"></div>
-      <div class="trait-count">已选 <span id="bg-count">0</span> / 3</div>
     </div>
 
     <!-- 属性预览 -->
     <div class="create-section">
       <div class="create-section-title">初始属性预览</div>
-      <div id="attr-preview" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;"></div>
+      <div id="attr-preview" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;"></div>
     </div>
 
-    <button class="create-confirm-btn" onclick="UI.confirmCreate()">踏入江湖</button>
+    <button class="create-confirm-btn" id="confirm-btn" onclick="UI.confirmCreate()">踏入江湖</button>
   </div>
 </div>
 

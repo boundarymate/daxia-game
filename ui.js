@@ -191,13 +191,24 @@ const UI = {
     const el = document.getElementById('point-value');
     el.textContent = pts;
     el.className = 'point-value' + (pts < 0 ? ' danger' : pts === 0 ? ' zero' : '');
-    // 确认按钮状态
+
+    // 确认按钮状态 + 提示文字
     const btn = document.getElementById('confirm-btn');
+    const hint = document.getElementById('confirm-hint');
     if (btn) {
-      const bgSelected = Object.keys(this.selectedBgs).length;
-      const canConfirm = pts >= 0 && bgSelected === 3;
+      const missing = ['出身', '经历', '际遇'].filter(tag => !this.selectedBgs[tag]);
+      const canConfirm = pts >= 0 && missing.length === 0;
       btn.disabled = !canConfirm;
-      btn.title = !canConfirm ? (pts < 0 ? '点数超支！' : '请为出身、经历、际遇各选一个背景特质') : '';
+
+      if (hint) {
+        if (pts < 0) {
+          hint.textContent = `⚠ 点数超支 ${Math.abs(pts)} 点，请取消部分正面特质或选择负面特质`;
+        } else if (missing.length > 0) {
+          hint.textContent = `⚠ 还需选择背景特质：${missing.join('、')}`;
+        } else {
+          hint.textContent = '';
+        }
+      }
     }
   },
 

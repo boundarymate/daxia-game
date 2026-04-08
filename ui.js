@@ -848,6 +848,9 @@ const UI = {
     const actionNames = {
       rest:'休息养伤', train:'刻苦修炼', wander:'游历江湖', work:'打工赚钱',
       explore:'探索秘境', sect_contribute:'为门派效力', sect_promote:'申请晋升',
+      travel:'前往新地点', fight:'切磋比武', quest:'完成任务', bounty:'悬赏任务',
+      recruit:'招募手下', marry:'求婚', ranking_challenge:'挑战排行榜',
+      disciple_train:'培养弟子', disciple_mission:'派遣弟子',
     };
     const actionName = actionNames[actionId] || actionId;
 
@@ -869,17 +872,14 @@ const UI = {
       }
     }
 
-    // 时间变化
-    const monthsPassed = (s.year * 12 + s.month) - (snapBefore.year * 12 + snapBefore.month);
+    // 时间变化（至少显示1个月）
+    const monthsPassed = Math.max(1, (s.year * 12 + s.month) - (snapBefore.year * 12 + snapBefore.month));
 
     // 本次行动产生的日志（最多5条）
     const newLogs = (result.newLogs || []).slice(-5);
 
-    // 随机事件检查（行动后30%概率）
-    let randomEvent = null;
-    if (actionId !== 'event_choice' && Math.random() < 0.3) {
-      randomEvent = Engine._triggerRandomEvent();
-    }
+    // 检查是否有待触发的随机事件（由游戏主循环设置的 pendingEvent）
+    const hasPendingEvent = !!this.pendingEvent;
 
     const html = `
       <div class="modal-overlay" id="action-feedback-modal" style="display:flex;">
@@ -896,7 +896,8 @@ const UI = {
             <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:2px;padding:8px;margin-bottom:10px;">
               <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">属性变化</div>
               <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;">${statChanges.join('')}</div>
-            </div>` : ''}
+            </div>` : `
+            <div style="font-size:11px;color:var(--text-muted);padding:6px 0;margin-bottom:6px;">本次行动属性无明显变化</div>`}
 
           ${newLogs.length > 0 ? `
             <div style="margin-bottom:10px;">
@@ -907,24 +908,24 @@ const UI = {
                 </div>`).join('')}
             </div>` : ''}
 
-          <button onclick="UI.closeFeedbackAndEvent('${randomEvent ? randomEvent.id : ''}')" style="
+          <button onclick="UI.closeFeedbackModal()" style="
             width:100%;padding:10px;border:1px solid var(--gold);color:var(--gold-light);
             background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;margin-top:4px;">
-            ${randomEvent ? '继续 →（有奇遇！）' : '继续'}
+            ${hasPendingEvent ? '继续 →（有奇遇！）' : '继续'}
           </button>
         </div>
       </div>`;
     document.body.insertAdjacentHTML('beforeend', html);
   },
 
-  closeFeedbackAndEvent(eventId) {
+  closeFeedbackModal() {
     const modal = document.getElementById('action-feedback-modal');
     if (modal) modal.remove();
-    if (eventId) {
-      const event = DATA.EVENTS.find(e => e.id === eventId);
-      if (event) {
-        setTimeout(() => this.triggerEvent(event), 200);
-      }
+    // 如果有待处理的随机事件，现在触发
+    if (this.pendingEvent) {
+      const event = this.pendingEvent;
+      this.pendingEvent = null;
+      setTimeout(() => this.showEventModal(event), 150);
     }
   },
 
@@ -1123,6 +1124,8 @@ const UI = {
   // ── 随机事件 ─────────────────────────────────────────────
   checkRandomEvent() {
     if (this.pendingEvent) {
+      // 如果 feedback 弹窗还在，等它关闭后再弹（closeFeedbackModal 会处理）
+      if (document.getElementById('action-feedback-modal')) return;
       this.showEventModal(this.pendingEvent);
       this.pendingEvent = null;
     }
@@ -1154,11 +1157,54 @@ const UI = {
 
   resolveEvent(eventId, choiceIdx) {
     document.getElementById('event-modal').style.display = 'none';
+
+    // 记录选择前的属性快照
+    const s = Engine.state;
+    const snapBefore = {
+      hp: s.hp, innerPower: s.innerPower, strength: s.strength,
+      agility: s.agility, swordSkill: s.swordSkill, endurance: s.endurance,
+      perception: s.perception, charm: s.charm, gold: s.gold,
+      reputation: s.reputation, morality: s.morality, evil: s.evil,
+    };
+
     const result = Engine.resolveEventChoice(eventId, choiceIdx);
-    if (result.success) {
-      this.toast(result.choice.result.substring(0, 30) + '...');
-    }
     this.render();
+
+    if (result.success) {
+      // 计算属性变化
+      const statMap = {
+        hp:'气血', innerPower:'内力', strength:'力量', agility:'身法',
+        swordSkill:'剑术', endurance:'体魄', perception:'悟性',
+        charm:'魅力', gold:'银两', reputation:'声望', morality:'道德', evil:'邪气',
+      };
+      const changes = [];
+      for (const [k, label] of Object.entries(statMap)) {
+        const diff = (s[k] || 0) - (snapBefore[k] || 0);
+        if (diff !== 0) {
+          const color = diff > 0 ? 'var(--green-light)' : 'var(--red-light)';
+          const sign = diff > 0 ? '+' : '';
+          changes.push(`<span style="color:${color};">${label}${sign}${diff}</span>`);
+        }
+      }
+
+      const html = `
+        <div class="modal-overlay" id="event-result-modal" style="display:flex;">
+          <div class="modal-box" style="max-width:400px;">
+            <div style="font-size:12px;color:var(--text-dim);line-height:1.8;margin-bottom:12px;">${result.choice.result}</div>
+            ${changes.length > 0 ? `
+              <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:2px;padding:8px;margin-bottom:12px;">
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">获得效果</div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;">${changes.join('')}</div>
+              </div>` : ''}
+            <button onclick="document.getElementById('event-result-modal').remove()" style="
+              width:100%;padding:10px;border:1px solid var(--gold);color:var(--gold-light);
+              background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
+              知道了
+            </button>
+          </div>
+        </div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
   },
 
   // ── 结局 ─────────────────────────────────────────────────

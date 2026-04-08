@@ -448,7 +448,7 @@ SECTS: [
   {
     id:'s_shaolin',   name:'少林寺',   align:'good',   type:'sect',
     desc:'武林泰山北斗，天下武功出少林',
-    location:'嵩山', require:{ morality:20, reputation:30 },
+    location:'嵩山', locationId:'l_shaolin', require:{ morality:20, reputation:30 },
     ranks:['俗家弟子','记名弟子','入室弟子','执事僧','长老','方丈'],
     rankReq:[0,200,500,1000,2000,5000],
     teachable:['m_yijin','m_shaolin','m_basic'],
@@ -457,7 +457,7 @@ SECTS: [
   {
     id:'s_wudang',    name:'武当派',   align:'good',   type:'sect',
     desc:'武当七侠，正道领袖',
-    location:'武当山', require:{ morality:15, reputation:20 },
+    location:'武当山', locationId:'l_wudang', require:{ morality:15, reputation:20 },
     ranks:['外门弟子','内门弟子','亲传弟子','执事','长老','掌门'],
     rankReq:[0,150,400,800,1800,4000],
     teachable:['m_chunyang','m_wudang','m_tianzhan'],
@@ -466,7 +466,7 @@ SECTS: [
   {
     id:'s_huashan',   name:'华山派',   align:'good',   type:'sect',
     desc:'华山论剑发源地，剑气书香两派',
-    location:'华山', require:{ swordSkill:20, reputation:15 },
+    location:'华山', locationId:'l_huashan', require:{ swordSkill:20, reputation:15 },
     ranks:['外门弟子','内门弟子','亲传弟子','执事','长老','掌门'],
     rankReq:[0,100,300,700,1500,3500],
     teachable:['m_zixia','m_huashan'],
@@ -475,7 +475,7 @@ SECTS: [
   {
     id:'s_gaibang',   name:'丐帮',     align:'good',   type:'gang',
     desc:'天下第一大帮，消息最为灵通',
-    location:'各地', require:{ reputation:25 },
+    location:'各地', locationId:null, require:{ reputation:25 },
     ranks:['新入帮','一袋弟子','三袋弟子','五袋弟子','七袋弟子','九袋长老','副帮主','帮主'],
     rankReq:[0,50,150,350,700,1500,3000,6000],
     teachable:['m_jianglong'],
@@ -484,7 +484,7 @@ SECTS: [
   {
     id:'s_mingjiao',  name:'明教',     align:'evil',   type:'gang',
     desc:'魔教之首，行事神秘，追求力量',
-    location:'光明顶', require:{ evil:20 },
+    location:'光明顶', locationId:'l_guangming', require:{ evil:20 },
     ranks:['普通教众','锐金旗','洪水旗','烈火旗','厚土旗','巨木旗','五行旗使','护教法王','左右使者','教主'],
     rankReq:[0,80,200,450,900,1800,3500,6000,10000,20000],
     teachable:['m_huagong','m_basic'],
@@ -493,7 +493,7 @@ SECTS: [
   {
     id:'s_xingxiu',   name:'星宿派',   align:'evil',   type:'sect',
     desc:'星宿老怪丁春秋所创，阴毒无比',
-    location:'星宿海', require:{ evil:30 },
+    location:'星宿海', locationId:'l_tianshan', require:{ evil:30 },
     ranks:['星宿弟子','星宿使者','星宿长老','星宿大长老','教主'],
     rankReq:[0,100,300,800,2000],
     teachable:['m_xingxiu'],
@@ -502,7 +502,7 @@ SECTS: [
   {
     id:'s_court',     name:'朝廷司武监', align:'neutral', type:'court',
     desc:'朝廷武官机构，以秩序为先',
-    location:'临安', require:{ reputation:40, morality:10 },
+    location:'临安', locationId:'l_xiangyang', require:{ reputation:40, morality:10 },
     ranks:['武监学员','武监校尉','武监百户','武监千户','武监指挥','武监都督','司武监正使'],
     rankReq:[0,200,500,1000,2000,4000,8000],
     teachable:[],

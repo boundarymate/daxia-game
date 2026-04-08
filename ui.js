@@ -327,37 +327,8 @@ const UI = {
       setTimeout(() => this.showExtraEnding(s.ending), 500);
     }
 
-    // 检查随机事件
-    this.checkRandomEvent();
-
-    // C: 检查奇遇弹窗
-    const pendingHE = Engine.getPendingHiddenEvent ? Engine.getPendingHiddenEvent() : null;
-    if (pendingHE && !this._pendingHEShown) {
-      this._pendingHEShown = pendingHE.id;
-      setTimeout(() => this.showHiddenEventModal(pendingHE), 600);
-    } else if (!pendingHE) {
-      this._pendingHEShown = null;
-    }
-
     // B: 武林大会行动提示
     this._tournamentActive = Engine.isTournamentActive ? Engine.isTournamentActive() : false;
-
-    // J: 检查年代事件弹窗
-    if (s.pendingEraEvent && s.pendingEraEvent !== this._shownEraEvent) {
-      this._shownEraEvent = s.pendingEraEvent;
-      const era = (DATA.ERA_EVENTS || []).find(e => e.id === s.pendingEraEvent);
-      if (era) setTimeout(() => this.showEraEventModal(era), 700);
-    } else if (!s.pendingEraEvent) {
-      this._shownEraEvent = null;
-    }
-
-    // G: 检查事件链弹窗
-    const activeChains = s.activeChains || {};
-    const chainIds = Object.keys(activeChains);
-    if (chainIds.length > 0 && chainIds[0] !== this._shownChain) {
-      this._shownChain = chainIds[0];
-      setTimeout(() => this._checkPendingChains(), 800);
-    }
 
     // K: 天气显示
     this._renderWeather();
@@ -365,21 +336,103 @@ const UI = {
     // R: 重伤状态显示
     this._renderInjuryStatus();
 
-    // L: 境界突破弹窗
-    if (s.pendingBreakthrough && s.pendingBreakthrough !== this._shownBreakthrough) {
-      this._shownBreakthrough = s.pendingBreakthrough;
-      const bt = (DATA.BREAKTHROUGH_EVENTS || []).find(b => b.id === s.pendingBreakthrough);
-      if (bt) setTimeout(() => this.showBreakthroughModal(bt), 900);
-    } else if (!s.pendingBreakthrough) {
-      this._shownBreakthrough = null;
+    // 统一弹窗队列：收集所有待弹出的弹窗，逐一排队显示
+    this._queuePendingModals();
+  },
+
+  // ── 统一弹窗队列管理 ─────────────────────────────────────
+  _queuePendingModals() {
+    const s = Engine.state;
+    if (!this._modalQueue) this._modalQueue = [];
+    if (!this._modalShownKeys) this._modalShownKeys = new Set();
+
+    // 清理已完成的弹窗 key（state 中对应字段已清空时移除）
+    if (!s.pendingBreakthrough) {
+      [...this._modalShownKeys].filter(k => k.startsWith('bt_')).forEach(k => this._modalShownKeys.delete(k));
+    }
+    if (!s.pendingRichEvent) {
+      [...this._modalShownKeys].filter(k => k.startsWith('rich_')).forEach(k => this._modalShownKeys.delete(k));
+    }
+    if (!s.pendingEraEvent) {
+      [...this._modalShownKeys].filter(k => k.startsWith('era_')).forEach(k => this._modalShownKeys.delete(k));
     }
 
-    // S: 富事件弹窗
-    if (s.pendingRichEvent && s.pendingRichEvent.eventId !== this._shownRichEvent) {
-      this._shownRichEvent = s.pendingRichEvent.eventId;
-      setTimeout(() => this.showRichEventModal(), 1000);
-    } else if (!s.pendingRichEvent) {
-      this._shownRichEvent = null;
+    // 收集所有待显示的弹窗（按优先级排序）
+    const candidates = [];
+
+    // 随机事件（最高优先级）
+    if (this.pendingEvent) {
+      candidates.push({ key: 'event_' + (this.pendingEvent.id || 'rand'), fn: () => {
+        const ev = this.pendingEvent;
+        this.pendingEvent = null;
+        this.showEventModal(ev);
+      }});
+    }
+
+    // C: 奇遇
+    const pendingHE = Engine.getPendingHiddenEvent ? Engine.getPendingHiddenEvent() : null;
+    if (pendingHE) {
+      candidates.push({ key: 'he_' + pendingHE.id, fn: () => this.showHiddenEventModal(pendingHE) });
+    } else {
+      this._modalShownKeys.delete && [...this._modalShownKeys].filter(k => k.startsWith('he_')).forEach(k => this._modalShownKeys.delete(k));
+    }
+
+    // J: 年代事件
+    if (s.pendingEraEvent) {
+      const era = (DATA.ERA_EVENTS || []).find(e => e.id === s.pendingEraEvent);
+      if (era) candidates.push({ key: 'era_' + era.id, fn: () => this.showEraEventModal(era) });
+    }
+
+    // G: 事件链
+    const activeChains = s.activeChains || {};
+    const chainIds = Object.keys(activeChains);
+    if (chainIds.length > 0) {
+      candidates.push({ key: 'chain_' + chainIds[0], fn: () => this._checkPendingChains() });
+    }
+
+    // L: 境界突破
+    if (s.pendingBreakthrough) {
+      const bt = (DATA.BREAKTHROUGH_EVENTS || []).find(b => b.id === s.pendingBreakthrough);
+      if (bt) candidates.push({ key: 'bt_' + bt.id, fn: () => this.showBreakthroughModal(bt) });
+    }
+
+    // S: 富事件
+    if (s.pendingRichEvent) {
+      candidates.push({ key: 'rich_' + s.pendingRichEvent.eventId, fn: () => this.showRichEventModal() });
+    }
+
+    // 过滤掉已经显示过的
+    const newCandidates = candidates.filter(c => !this._modalShownKeys.has(c.key));
+    if (newCandidates.length === 0) return;
+
+    // 如果当前有弹窗正在显示，加入队列等待
+    const hasOpenModal = document.querySelector('.modal-overlay[style*="flex"]');
+    if (hasOpenModal) {
+      // 把新的候选加入队列（去重）
+      newCandidates.forEach(c => {
+        if (!this._modalQueue.find(q => q.key === c.key)) {
+          this._modalQueue.push(c);
+        }
+      });
+      return;
+    }
+
+    // 没有弹窗，显示第一个
+    const first = newCandidates[0];
+    this._modalShownKeys.add(first.key);
+    setTimeout(() => first.fn(), 200);
+  },
+
+  // 弹窗关闭后调用，显示队列中的下一个
+  _processModalQueue() {
+    if (!this._modalQueue || this._modalQueue.length === 0) return;
+    const hasOpenModal = document.querySelector('.modal-overlay[style*="flex"]');
+    if (hasOpenModal) return;
+    const next = this._modalQueue.shift();
+    if (next) {
+      if (!this._modalShownKeys) this._modalShownKeys = new Set();
+      this._modalShownKeys.add(next.key);
+      setTimeout(() => next.fn(), 200);
     }
   },
 
@@ -658,6 +711,13 @@ const UI = {
         ${tips.map(t => `<div style="font-size:10px;">${t}</div>`).join('')}
       </div>` : '';
 
+    // 计算当前休息档位
+    const restTierInfo = (() => {
+      if (s.sect) return { icon:'🏯', label:'门派宿舍', cost:'免费', color:'var(--green-light)', mult:1.4 };
+      if (s.gold >= 10) return { icon:'🏨', label:'客栈', cost:'约10~15两', color:'var(--gold)', mult:1.0 };
+      return { icon:'🌉', label:'桥洞/野外', cost:'免费', color:'var(--text-muted)', mult:0.6 };
+    })();
+
     let html = tipsHTML + actions.map(a => {
       // 判断行动是否可用
       let disabled = false;
@@ -666,6 +726,17 @@ const UI = {
       if (a.id === 'explore' && s.energy < 30) { disabled = true; disabledReason = '体力不足'; }
       if (a.id === 'work' && s.energy < 15) { disabled = true; disabledReason = '体力不足'; }
       if (a.id === 'wander' && s.gold < 20) { disabled = true; disabledReason = '银两不足'; }
+
+      // rest 行动特殊处理：显示档位信息
+      if (a.id === 'rest') {
+        return `
+        <div class="action-btn" onclick="UI.showRestModal()" style="position:relative;">
+          <div class="action-icon">${restTierInfo.icon}</div>
+          <div class="action-name">休息养伤</div>
+          <div class="action-cost" style="color:${restTierInfo.color};">${restTierInfo.label} · ${restTierInfo.cost}</div>
+          <div class="action-desc">气血×${(restTierInfo.mult * 30).toFixed(0)}%，体力×${(restTierInfo.mult * 40).toFixed(0)}</div>
+        </div>`;
+      }
 
       return `
       <div class="action-btn${disabled ? ' disabled' : ''}" onclick="${disabled ? '' : `UI.doAction('${a.id}')`}" style="${disabled ? 'opacity:0.45;cursor:not-allowed;' : ''}">
@@ -910,7 +981,17 @@ const UI = {
       const alignColor = sect.align === 'good' ? 'var(--green)' : sect.align === 'evil' ? 'var(--red)' : 'var(--blue)';
       const alignName = sect.align === 'good' ? '正道' : sect.align === 'evil' ? '邪道' : '中立';
       const reqStr = Object.entries(sect.require).map(([k,v])=>`${Engine._statName(k)}≥${v}`).join('，') || '无';
-      const canJoin = !s.sect && Object.entries(sect.require).every(([k,v]) => (s[k]||0) >= v);
+      const attrOk = Object.entries(sect.require).every(([k,v]) => (s[k]||0) >= v);
+      // 地点检查
+      const locOk = !sect.locationId || s.location === sect.locationId;
+      const reqLoc = sect.locationId ? DATA.LOCATIONS.find(l => l.id === sect.locationId) : null;
+      const locName = reqLoc ? reqLoc.name : sect.location;
+      const canJoin = !s.sect && attrOk && locOk;
+      // 按钮文字
+      let joinBtnText = '申请加入';
+      if (s.sect) joinBtnText = '已加入其他门派';
+      else if (!attrOk) joinBtnText = '条件不足';
+      else if (!locOk) joinBtnText = `需前往${locName}`;
       return `
         <div class="sect-card">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
@@ -920,6 +1001,7 @@ const UI = {
           </div>
           <div class="sect-desc">${sect.desc}</div>
           <div style="font-size:10px;color:var(--text-muted);margin:4px 0;">加入条件：${reqStr}</div>
+          ${sect.locationId ? `<div style="font-size:10px;color:${locOk ? 'var(--green-light)' : 'var(--gold)'};margin-bottom:4px;">📍 需在【${locName}】拜入${locOk ? ' ✓' : '（当前不在此地）'}</div>` : ''}
           <div style="font-size:10px;color:var(--text-muted);">职位体系：${sect.ranks.join(' → ')}</div>
           ${isJoined ? `
             <div style="margin-top:8px;display:flex;gap:8px;">
@@ -927,7 +1009,7 @@ const UI = {
               <button class="sect-join-btn" style="border-color:var(--blue);color:var(--blue-light);" onclick="UI.doAction('sect_promote')">申请晋升</button>
             </div>` : `
             <button class="sect-join-btn" style="margin-top:8px;${!canJoin?'opacity:0.4;cursor:not-allowed;':''}" ${!canJoin?'disabled':''} onclick="UI.joinSect('${sect.id}')">
-              ${s.sect ? '已加入其他门派' : (canJoin ? '申请加入' : '条件不足')}
+              ${joinBtnText}
             </button>`}
         </div>`;
     }).join('');
@@ -956,6 +1038,76 @@ const UI = {
   },
 
   // ── 行动处理 ─────────────────────────────────────────────
+  showRestModal() {
+    const s = Engine.state;
+    const hasSect = !!s.sect;
+    const canInn = s.gold >= 10;
+
+    const tiers = [
+      hasSect ? {
+        id: 'rest_sect', icon: '🏯', label: '门派宿舍',
+        desc: '在门派宿舍安心休养，恢复效果最佳。',
+        cost: '免费', costColor: 'var(--green-light)',
+        badge: '推荐', badgeColor: 'var(--green-light)',
+      } : null,
+      {
+        id: 'rest_inn', icon: '🏨', label: '客栈',
+        desc: '花费银两住客栈，舒适休息，恢复良好。',
+        cost: '约10~15两', costColor: 'var(--gold)',
+        badge: canInn ? '' : '银两不足', badgeColor: 'var(--red-light)',
+        disabled: !canInn,
+      },
+      {
+        id: 'rest_wild', icon: '🌉', label: '桥洞/野外',
+        desc: '露宿野外，恢复较差，且有15%概率染病。',
+        cost: '免费', costColor: 'var(--text-muted)',
+        badge: '有风险', badgeColor: 'var(--red-light)',
+      },
+    ].filter(Boolean);
+
+    const tiersHTML = tiers.map(t => `
+      <div onclick="${t.disabled ? '' : `UI._doRestTier('${t.id}')`}"
+           style="display:flex;align-items:center;gap:10px;padding:10px 12px;
+                  border:1px solid var(--border);border-radius:4px;margin-bottom:8px;
+                  cursor:${t.disabled ? 'not-allowed' : 'pointer'};
+                  opacity:${t.disabled ? '0.45' : '1'};
+                  background:rgba(255,255,255,0.02);
+                  transition:background 0.15s;"
+           onmouseover="${t.disabled ? '' : "this.style.background='rgba(255,255,255,0.06)'"}"
+           onmouseout="this.style.background='rgba(255,255,255,0.02)'">
+        <div style="font-size:22px;">${t.icon}</div>
+        <div style="flex:1;">
+          <div style="font-weight:600;font-size:13px;">${t.label}
+            ${t.badge ? `<span style="font-size:10px;color:${t.badgeColor};margin-left:6px;">[${t.badge}]</span>` : ''}
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${t.desc}</div>
+        </div>
+        <div style="font-size:11px;color:${t.costColor};white-space:nowrap;">${t.cost}</div>
+      </div>`).join('');
+
+    const modal = document.createElement('div');
+    modal.id = 'rest-modal';
+    modal.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;
+      display:flex;align-items:center;justify-content:center;`;
+    modal.innerHTML = `
+      <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;
+                  padding:20px;width:320px;max-width:90vw;">
+        <div style="font-size:15px;font-weight:700;margin-bottom:14px;">🌙 选择休息方式</div>
+        ${tiersHTML}
+        <button onclick="document.getElementById('rest-modal').remove()"
+                style="width:100%;margin-top:4px;padding:8px;background:transparent;
+                       border:1px solid var(--border);border-radius:4px;
+                       color:var(--text-muted);cursor:pointer;font-size:12px;">取消</button>
+      </div>`;
+    document.body.appendChild(modal);
+  },
+
+  _doRestTier(tierId) {
+    const modal = document.getElementById('rest-modal');
+    if (modal) modal.remove();
+    this.doAction('rest', { tier: tierId });
+  },
+
   doAction(actionId, params = {}) {
     // shop 行动特殊处理
     if (actionId === 'shop') {
@@ -1090,12 +1242,11 @@ const UI = {
   closeFeedbackModal() {
     const modal = document.getElementById('action-feedback-modal');
     if (modal) modal.remove();
-    // 如果有待处理的随机事件，现在触发
-    if (this.pendingEvent) {
-      const event = this.pendingEvent;
-      this.pendingEvent = null;
-      setTimeout(() => this.showEventModal(event), 150);
-    }
+    // 关闭后触发弹窗队列（统一处理所有待弹窗）
+    setTimeout(() => {
+      this.render();
+      this._processModalQueue();
+    }, 150);
   },
 
   showShopModal() {

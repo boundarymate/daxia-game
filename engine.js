@@ -113,6 +113,9 @@ const Engine = {
       triggeredEraEvents: [],   // 已触发的年代事件id列表
       pendingEraEvent: null,    // 待处理的年代事件
 
+      // NPC 聊天冷却：{npcId: 最后聊天的月份数(year*12+month)}
+      npcTalkCooldown: {},
+
       // K: 天气系统
       currentWeather: 'sunny',  // 当前天气id
       weatherDesc: '',          // 天气描述文本
@@ -338,23 +341,71 @@ const Engine = {
     switch (actionId) {
 
       case 'rest': {
-        // 休息：恢复体力和气血
+        // 休息分层：门派宿舍 > 客栈 > 桥洞/野外
         this._updateCombo('rest');
         const weatherRestBonus = this.getWeatherBonus('rest');
-        const restMult = 1 + weatherRestBonus / 100;
+
+        // 判断休息档位
+        // params.tier: 'rest_sect' | 'rest_inn' | 'rest_wild'（来自 UI 选择弹窗）
+        // params.restType: 'inn' | 'wild'（旧接口，兼容保留）
+        const tierChoice = params.tier
+          ? (params.tier === 'rest_sect' ? 'sect' : params.tier === 'rest_inn' ? 'inn' : 'wild')
+          : (params.restType || null);
+
+        let restTier, restCost = 0, restDesc;
+        if (s.sect && tierChoice !== 'inn' && tierChoice !== 'wild') {
+          // 有门派且未强制选其他档位：住宿舍，免费，效果最好
+          restTier = 'sect';
+          restCost = 0;
+          restDesc = `${this.getSect().name}宿舍`;
+        } else if (tierChoice === 'inn' || (!tierChoice && s.gold >= 10)) {
+          // 客栈：花钱，效果中等
+          const innCost = 10 + Math.floor(Math.random() * 6); // 10~15两
+          if (s.gold >= innCost) {
+            restTier = 'inn';
+            restCost = innCost;
+            restDesc = '客栈';
+            s.gold -= innCost;
+          } else {
+            restTier = 'wild';
+            restCost = 0;
+            restDesc = '桥洞/野外';
+          }
+        } else {
+          // 桥洞/野外：免费，效果差，有概率生病
+          restTier = 'wild';
+          restCost = 0;
+          restDesc = '桥洞/野外';
+        }
+
+        // 各档位恢复量
+        const tierMult = restTier === 'sect' ? 1.4 : restTier === 'inn' ? 1.0 : 0.6;
+        const restMult = tierMult * (1 + weatherRestBonus / 100);
         const hpGain = Math.floor(s.maxHp * 0.3 * restMult);
+        const energyGain = Math.floor(40 * restMult);
         s.hp = Math.min(s.maxHp, s.hp + hpGain);
-        s.energy = Math.min(100, s.energy + Math.floor(40 * restMult));
+        s.energy = Math.min(100, s.energy + energyGain);
+
         // 重伤时休息额外恢复
         if (s.isInjured) {
-          s.injuredMonthsLeft = Math.max(0, s.injuredMonthsLeft - 0.5);
-          this.addLog('重伤中休息，伤势恢复加快。', 'normal');
+          const injuryRecover = restTier === 'sect' ? 1.0 : restTier === 'inn' ? 0.5 : 0.25;
+          s.injuredMonthsLeft = Math.max(0, s.injuredMonthsLeft - injuryRecover);
+          this.addLog(`重伤中在${restDesc}休息，伤势恢复${injuryRecover >= 1 ? '加快' : '缓慢'}。`, 'normal');
         }
+
+        // 桥洞休息有15%概率生病（体力-20，持续影响）
+        if (restTier === 'wild' && Math.random() < 0.15) {
+          s.energy = Math.max(0, s.energy - 20);
+          s.hp = Math.max(1, s.hp - 10);
+          this.addLog('在野外露宿，受了风寒，体力大减！', 'danger');
+        }
+
         this.advanceTime(1);
         const w = this.getWeather();
-        const weatherNote = weatherRestBonus !== 0 ? `（${w.icon}${w.name}：休息效果${weatherRestBonus > 0 ? '+' : ''}${weatherRestBonus}%）` : '';
-        this.addLog(`你在${this.getLocation().name}休息了一个月，气血恢复了 ${hpGain} 点。${weatherNote}`, 'normal');
-        results.push({ type:'hp', val:hpGain });
+        const weatherNote = weatherRestBonus !== 0 ? `（${w.icon}${w.name}：+${weatherRestBonus}%）` : '';
+        const costNote = restCost > 0 ? `，花费${restCost}两` : '';
+        this.addLog(`你在【${restDesc}】休息了一个月${costNote}，气血+${hpGain}，体力+${energyGain}。${weatherNote}`, 'normal');
+        results.push({ type:'hp', val:hpGain, restTier, restDesc });
         break;
       }
 
@@ -665,6 +716,13 @@ const Engine = {
     const sect = DATA.SECTS.find(x => x.id === sectId);
     if (!sect) return { success:false, msg:'门派不存在' };
 
+    // 检查地点限制（locationId 为 null 表示无地点限制）
+    if (sect.locationId && s.location !== sect.locationId) {
+      const reqLoc = DATA.LOCATIONS.find(l => l.id === sect.locationId);
+      const reqLocName = reqLoc ? reqLoc.name : sect.location;
+      return { success:false, msg:`拜入${sect.name}需要亲赴【${reqLocName}】，请先前往该地。` };
+    }
+
     // 检查加入条件
     const req = sect.require;
     for (const [k, v] of Object.entries(req)) {
@@ -969,13 +1027,30 @@ const Engine = {
     const npc = DATA.NPCS.find(n => n.id === npcId);
     if (!npc) return { success:false, msg:'NPC不存在' };
 
-    // 增加好感度
-    const favorGain = 5 + Math.floor(s.charm / 10);
-    s.npcFavor[npcId] = Math.min(100, (s.npcFavor[npcId] || 0) + favorGain);
+    // 冷却检查：每半个月（0.5月）只能聊一次
+    // 用 year*24 + month*2 + (半月标记) 作为时间戳
+    const now = s.year * 24 + s.month * 2;
+    const lastTalk = s.npcTalkCooldown[npcId] || 0;
+    if (now - lastTalk < 1) {
+      return { success:false, msg:`与${npc.name}聊得太频繁了，过半个月再来吧。`, cooldown:true };
+    }
+    s.npcTalkCooldown[npcId] = now;
+
+    // 好感收益随好感度递减：好感越高，每次增长越少
+    const curFavor = s.npcFavor[npcId] || 0;
+    const charmBonus = Math.floor(s.charm / 15);
+    // 好感<30: +5~7；30~60: +3~4；60~80: +2；80+: +1
+    let favorGain;
+    if (curFavor < 30)      favorGain = 5 + charmBonus + Math.floor(Math.random() * 3);
+    else if (curFavor < 60) favorGain = 3 + charmBonus + Math.floor(Math.random() * 2);
+    else if (curFavor < 80) favorGain = 2 + charmBonus;
+    else                    favorGain = Math.max(1, 1 + charmBonus);
+
+    s.npcFavor[npcId] = Math.min(100, curFavor + favorGain);
 
     const dialog = npc.dialog[Math.floor(Math.random() * npc.dialog.length)];
     this.addLog(`${npc.name}（${npc.title}）说："${dialog}"`, 'dialog');
-    this.addLog(`与${npc.name}的好感度+${favorGain}`, 'info');
+    this.addLog(`与${npc.name}的好感度+${favorGain}（当前${s.npcFavor[npcId]}）`, 'info');
 
     return { success:true, npc, dialog, favorGain };
   },
@@ -2966,8 +3041,16 @@ const Engine = {
   _checkBreakthroughs() {
     const s = this.state;
     if (s.pendingBreakthrough) return; // 已有待处理突破
+    if (!s.skippedBreakthroughs) s.skippedBreakthroughs = [];
     for (const bt of DATA.BREAKTHROUGH_EVENTS) {
+      // 已成功突破过的跳过
       if (s.triggeredBreakthroughs.includes(bt.id)) continue;
+      // 玩家选择了「暂不突破」的，属性再提升20后才重新提示
+      if (s.skippedBreakthroughs.includes(bt.id)) {
+        if ((s[bt.stat] || 0) < bt.threshold + 20) continue;
+        // 属性足够高了，移出 skipped 列表，重新提示
+        s.skippedBreakthroughs = s.skippedBreakthroughs.filter(id => id !== bt.id);
+      }
       if ((s[bt.stat] || 0) >= bt.threshold) {
         s.pendingBreakthrough = bt.id;
         this.addLog(`⚡ 你感到${bt.name}的契机已到，是否尝试突破？`, 'warning');
@@ -3031,7 +3114,10 @@ const Engine = {
   skipBreakthrough(btId) {
     const s = this.state;
     s.pendingBreakthrough = null;
-    this.addLog('你压制住了突破的冲动，继续积蓄力量。', 'normal');
+    // 记录已跳过，避免每月重复弹出
+    if (!s.skippedBreakthroughs) s.skippedBreakthroughs = [];
+    if (!s.skippedBreakthroughs.includes(btId)) s.skippedBreakthroughs.push(btId);
+    this.addLog('你压制住了突破的冲动，继续积蓄力量。（属性再提升后会重新提示）', 'normal');
     return { success: true };
   },
 

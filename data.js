@@ -1074,4 +1074,259 @@ ENDINGS: [
     desc:'你找到了心爱之人，携手归隐田园，过上了平静幸福的生活。' },
 ],
 
+// ─────────────────────────────────────────────
+//  Q: 江湖传闻模板
+//  type: rumor=普通传闻, treasure=宝物出世, crisis=危机, person=人物出没
+//  reward: 前往后可能获得的奖励
+//  require: 前往的属性要求
+// ─────────────────────────────────────────────
+RUMORS: [
+  // ── 宝物出世 ──
+  { id:'r_secret_manual', type:'treasure', urgency:2,
+    title:'武学秘籍现世',
+    desc:'江湖传言，{loc}附近的山洞中发现了一本前朝武学秘籍，已有数名高手前往争夺。',
+    locs:['终南山','古墓','华山','峨眉山'],
+    reward:{ type:'martial', desc:'习得一门随机武功' },
+    require:{ agility:15 },
+    cost:{ time:2, energy:25 } },
+
+  { id:'r_divine_weapon', type:'treasure', urgency:2,
+    title:'神兵重现江湖',
+    desc:'据说{loc}的铁匠铺收到了一批上古精铁，正在打造绝世神兵，先到先得。',
+    locs:['襄阳','小镇','江湖'],
+    reward:{ type:'weapon', desc:'获得一件稀有神兵' },
+    require:{},
+    cost:{ time:1, energy:15 } },
+
+  { id:'r_herb_valley', type:'treasure', urgency:1,
+    title:'百草谷现世',
+    desc:'有人在{loc}深处发现了一处百草谷，其中灵药遍地，但据说有猛兽守护。',
+    locs:['终南山','峨眉山','古墓'],
+    reward:{ type:'items', items:['i_ginseng','i_lingzhi'], desc:'采集珍贵草药' },
+    require:{ agility:20 },
+    cost:{ time:2, energy:30 } },
+
+  // ── 人物出没 ──
+  { id:'r_master_appears', type:'person', urgency:2,
+    title:'高人现身',
+    desc:'江湖传言，一位隐世高人近日现身{loc}，据说愿意指点有缘之人，机不可失。',
+    locs:['终南山','华山','武当山','峨眉山'],
+    reward:{ type:'train', bonus:{ innerPower:15, perception:10 }, desc:'获得高人指点，大幅提升内力和悟性' },
+    require:{ innerPower:20 },
+    cost:{ time:2, energy:20 } },
+
+  { id:'r_evil_master', type:'person', urgency:3,
+    title:'魔头出没',
+    desc:'消息传来，一名凶残魔头在{loc}一带作恶，已有数名侠士前去讨伐，无一生还。',
+    locs:['江湖','蒙古大营','古墓'],
+    reward:{ type:'combat_win', gold:200, reputation:50, desc:'击败魔头，获得重赏' },
+    require:{ strength:40, innerPower:50 },
+    cost:{ time:2, energy:40 } },
+
+  { id:'r_wandering_doctor', type:'person', urgency:1,
+    title:'神医游历',
+    desc:'神医{name}近日游历至{loc}附近，据说其医术通神，可治百病，还会传授医术。',
+    names:['华佗再世','妙手回春','悬壶老人'],
+    locs:['小镇','襄阳','江湖'],
+    reward:{ type:'items', items:['i_huisheng','i_jiuhua'], desc:'获得珍贵丹药' },
+    require:{},
+    cost:{ time:1, energy:10 } },
+
+  // ── 危机事件 ──
+  { id:'r_village_crisis', type:'crisis', urgency:3,
+    title:'村庄告急',
+    desc:'急报！{loc}附近一处村庄遭山贼洗劫，村民四散奔逃，急需侠士出手相救！',
+    locs:['小镇','江湖','襄阳'],
+    reward:{ type:'morality', morality:20, reputation:30, gold:50, desc:'救助村民，获得声望与道德' },
+    require:{},
+    cost:{ time:1, energy:20 } },
+
+  { id:'r_plague', type:'crisis', urgency:3,
+    title:'瘟疫肆虐',
+    desc:'{loc}一带爆发瘟疫，百姓苦不堪言，急需大量草药救治，有药材者可前往援助。',
+    locs:['小镇','襄阳','江湖'],
+    reward:{ type:'morality', morality:30, reputation:40, desc:'捐献草药，救助百姓' },
+    require:{ inventoryItem:'i_herb' },
+    cost:{ time:1, energy:15 } },
+
+  { id:'r_sect_war', type:'crisis', urgency:3,
+    title:'门派纷争',
+    desc:'江湖传言，{sect1}与{sect2}之间的积怨已久，近日在{loc}爆发冲突，双方死伤惨重。',
+    sects:[['全真教','古墓派'],['丐帮','魔教'],['武当派','明教']],
+    locs:['江湖','终南山','华山'],
+    reward:{ type:'choice', desc:'可选择调停或助战' },
+    require:{},
+    cost:{ time:2, energy:25 } },
+
+  // ── 普通传闻 ──
+  { id:'r_tournament', type:'rumor', urgency:2,
+    title:'武林大会',
+    desc:'消息传来，{loc}将举办一场武林大会，各路英雄豪杰云集，切磋武艺，一较高下。',
+    locs:['襄阳','江湖','华山'],
+    reward:{ type:'combat_win', reputation:40, exp:60, desc:'参加武林大会，扬名立万' },
+    require:{ innerPower:30 },
+    cost:{ time:2, energy:30 } },
+
+  { id:'r_treasure_map', type:'rumor', urgency:1,
+    title:'藏宝图现世',
+    desc:'据说有人在{loc}的古玩铺发现了一张藏宝图，图上标注的宝藏据说价值连城。',
+    locs:['小镇','襄阳','江湖'],
+    reward:{ type:'gold', gold:150, desc:'寻得宝藏，获得大量银两' },
+    require:{ perception:20 },
+    cost:{ time:2, energy:20 } },
+
+  { id:'r_old_friend', type:'rumor', urgency:1,
+    title:'故人来访',
+    desc:'有人捎来消息，你的一位旧识近日出现在{loc}，似乎有要事相告。',
+    locs:['小镇','襄阳','江湖'],
+    reward:{ type:'favor', npcBonus:20, desc:'与故人叙旧，增进感情' },
+    require:{},
+    cost:{ time:1, energy:10 } },
+],
+
+// ─────────────────────────────────────────────
+//  O: 季节数据
+// ─────────────────────────────────────────────
+SEASONS: {
+  spring: { name:'春', months:[3,4,5], icon:'🌸',
+    desc:'春暖花开，万物复苏，正是修炼的好时节。',
+    effects:{ energyRegen:+10, trainBonus:+15, herbBonus:+20, eventMod:'positive' } },
+  summer: { name:'夏', months:[6,7,8], icon:'☀️',
+    desc:'烈日炎炎，暑气逼人，体力消耗加大，但内功修炼事半功倍。',
+    effects:{ energyRegen:-5, innerBonus:+20, trainBonus:+5, eventMod:'neutral' } },
+  autumn: { name:'秋', months:[9,10,11], icon:'🍂',
+    desc:'金风送爽，秋高气爽，剑法修炼最为适宜，江湖事端也多发于此时。',
+    effects:{ energyRegen:+5, swordBonus:+20, combatBonus:+10, eventMod:'neutral' } },
+  winter: { name:'冬', months:[12,1,2], icon:'❄️',
+    desc:'天寒地冻，江湖萧索，体力恢复减慢，但寒冬苦练可磨砺意志。',
+    effects:{ energyRegen:-15, trainBonus:+25, travelCostMod:+10, eventMod:'negative' } },
+},
+
+// ─────────────────────────────────────────────
+//  N: 江湖势力（门派仇恨/好感系统）
+//  factions: 各势力的初始态度
+// ─────────────────────────────────────────────
+FACTIONS: [
+  { id:'f_zhengdao',  name:'正道联盟',  icon:'⚔️',
+    desc:'全真教、丐帮、武当等正道门派组成的联盟，以除暴安良为己任。',
+    sects:['s_quanzhen','s_gaibang','s_wudang'],
+    initialAttitude: 50,
+    // 触发追杀的仇恨阈值
+    huntThreshold: -40 },
+  { id:'f_mingjiao',  name:'明教',      icon:'🔥',
+    desc:'行事神秘的明教，亦正亦邪，与正道时有摩擦。',
+    sects:['s_mingjiao'],
+    initialAttitude: 20,
+    huntThreshold: -30 },
+  { id:'f_mongol',    name:'蒙古势力',  icon:'🏹',
+    desc:'虎视眈眈的蒙古大军，是中原武林共同的敌人。',
+    sects:[],
+    initialAttitude: -20,
+    huntThreshold: -50 },
+  { id:'f_jianghu',   name:'江湖散人',  icon:'🗡️',
+    desc:'无门无派的江湖人士，态度随你的声望和行为而变化。',
+    sects:[],
+    initialAttitude: 30,
+    huntThreshold: -60 },
+],
+
+// 势力态度变化规则
+FACTION_RULES: [
+  // 行为 → 对哪个势力的影响
+  { trigger:'kill_good_npc',  faction:'f_zhengdao', delta:-20, desc:'击杀正道中人' },
+  { trigger:'kill_evil_npc',  faction:'f_zhengdao', delta:+15, desc:'击杀邪道中人' },
+  { trigger:'kill_evil_npc',  faction:'f_mingjiao', delta:+5,  desc:'击杀邪道中人' },
+  { trigger:'help_village',   faction:'f_zhengdao', delta:+10, desc:'救助百姓' },
+  { trigger:'help_village',   faction:'f_jianghu',  delta:+8,  desc:'救助百姓' },
+  { trigger:'join_mingjiao',  faction:'f_zhengdao', delta:-15, desc:'加入明教' },
+  { trigger:'join_mingjiao',  faction:'f_mingjiao', delta:+20, desc:'加入明教' },
+  { trigger:'defend_xiangyang',faction:'f_zhengdao',delta:+25, desc:'守卫襄阳' },
+  { trigger:'defend_xiangyang',faction:'f_mongol',  delta:-30, desc:'守卫襄阳' },
+  { trigger:'high_evil',      faction:'f_zhengdao', delta:-10, desc:'邪气过高' },
+  { trigger:'high_evil',      faction:'f_jianghu',  delta:-5,  desc:'邪气过高' },
+  { trigger:'high_reputation',faction:'f_jianghu',  delta:+5,  desc:'声望提升' },
+],
+
+// ─────────────────────────────────────────────
+//  M: 武功升级数据
+//  每门武功可升至10层，每层提供额外加成
+// ─────────────────────────────────────────────
+MARTIAL_LEVEL_NAMES: ['入门','小成','初窥门径','渐入佳境','融会贯通',
+                       '炉火纯青','登峰造极','出神入化','臻于化境','无上境界'],
+
+// 升级所需修炼次数（累计）
+MARTIAL_LEVEL_EXP: [0, 10, 25, 45, 70, 100, 140, 190, 250, 320],
+
+// 每层额外加成（叠加在基础效果上）
+MARTIAL_LEVEL_BONUS: {
+  // 内功类：每层内力+3，5层后额外+5
+  inner:  [0,3,3,3,3,8,3,3,3,3,10],
+  // 剑法类：每层剑术+3，5层后额外+5
+  sword:  [0,3,3,3,3,8,3,3,3,3,10],
+  // 掌法类：每层力量+2，内力+1
+  palm:   [0,2,2,2,2,5,2,2,2,2,8],
+  // 轻功类：每层身法+3
+  qinggong:[0,3,3,3,3,6,3,3,3,3,8],
+  // 暗器类：每层速度+2，悟性+1
+  hidden: [0,2,2,2,2,4,2,2,2,2,6],
+  // 邪功类：每层内力+4，但道德-2
+  evil:   [0,4,4,4,4,10,4,4,4,4,15],
+},
+
+// ─────────────────────────────────────────────
+//  P: 武功对决招式库
+//  每门武功有独特招式，战斗时可选择
+// ─────────────────────────────────────────────
+COMBAT_MOVES: {
+  // 通用招式（无武功时可用）
+  default: [
+    { id:'m_punch',   name:'铁拳',    power:1.0, desc:'一记有力的拳头', type:'normal' },
+    { id:'m_kick',    name:'扫腿',    power:0.9, desc:'横扫千军的腿法', type:'normal' },
+    { id:'m_dodge',   name:'闪避',    power:0.3, desc:'灵活躲避对方攻击，减少受伤', type:'defend', dodgeBonus:0.4 },
+  ],
+  // 内功招式
+  inner: [
+    { id:'m_qi_blast',  name:'气劲外放', power:1.5, desc:'将内力凝聚于掌心，轰然爆发', type:'inner' },
+    { id:'m_iron_shirt',name:'金钟罩',   power:0.5, desc:'以内力护体，大幅减少受伤', type:'defend', defBonus:0.5 },
+  ],
+  // 剑法招式
+  sword: [
+    { id:'m_sword_fast', name:'剑走偏锋', power:1.3, desc:'出剑如电，令对手防不胜防', type:'sword', speedBonus:0.2 },
+    { id:'m_sword_heavy',name:'重剑无锋', power:1.8, desc:'以力破巧，一剑重如泰山', type:'sword', powerBonus:0.3 },
+    { id:'m_sword_flow', name:'行云流水', power:1.2, desc:'剑法如流水，绵绵不绝', type:'sword', comboBonus:true },
+  ],
+  // 掌法招式
+  palm: [
+    { id:'m_palm_wave',  name:'降龙十八掌', power:2.0, desc:'天下第一掌法，威力无穷', type:'palm' },
+    { id:'m_palm_push',  name:'推山掌',     power:1.4, desc:'以掌力推开对手', type:'palm' },
+  ],
+  // 轻功招式
+  qinggong: [
+    { id:'m_swift',      name:'凌波微步', power:0.8, desc:'身法飘逸，难以捉摸，大幅提升闪避', type:'qinggong', dodgeBonus:0.6 },
+    { id:'m_aerial',     name:'凌空一击', power:1.6, desc:'借助轻功从高处俯冲攻击', type:'qinggong' },
+  ],
+  // 暗器招式
+  hidden: [
+    { id:'m_dart',       name:'飞镖连珠', power:1.2, desc:'连发数枚飞镖，令对手难以招架', type:'hidden' },
+    { id:'m_poison_dart',name:'毒镖',     power:1.0, desc:'涂有毒药的飞镖，中者内力大损', type:'hidden', debuff:'poison' },
+  ],
+  // 邪功招式
+  evil: [
+    { id:'m_absorb',     name:'吸星大法', power:1.5, desc:'吸取对手内力为己用', type:'evil', drain:true },
+    { id:'m_dark_palm',  name:'七伤拳',   power:2.2, desc:'威力极大但伤己七分', type:'evil', selfDmg:0.3 },
+  ],
+},
+
+// 招式克制关系（attacker type → defender type → 倍率）
+COMBAT_COUNTER: {
+  inner:    { normal:1.3, sword:1.1, palm:0.9 },
+  sword:    { qinggong:1.4, normal:1.2, inner:0.9 },
+  palm:     { inner:1.2, normal:1.3, evil:0.8 },
+  qinggong: { hidden:1.3, palm:1.1, sword:0.9 },
+  hidden:   { inner:1.2, qinggong:0.8, normal:1.3 },
+  evil:     { inner:1.4, palm:1.3, sword:0.8 },
+  normal:   {},
+  defend:   {},
+},
+
 };

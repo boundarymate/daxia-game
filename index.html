@@ -603,6 +603,7 @@ body {
       <span class="top-stat-val" id="top-energy">100</span>
     </div>
     <span class="top-time" id="top-time">第1年1月</span>
+    <span id="top-season" style="font-size:11px;color:var(--green-light);margin-left:6px;"></span>
     <button class="top-save-btn" onclick="UI.saveGame()">存档</button>
   </div>
 
@@ -659,6 +660,8 @@ body {
         <button class="tab-btn" onclick="UI.switchTab('quests')">任务</button>
         <button class="tab-btn" onclick="UI.switchTab('npcs')">人物</button>
         <button class="tab-btn" onclick="UI.switchTab('sects')">门派</button>
+        <button class="tab-btn" onclick="UI.switchTab('rumors')">传闻</button>
+        <button class="tab-btn" onclick="UI.switchTab('factions')">势力</button>
         <button class="tab-btn" onclick="UI.switchTab('bag')">背包</button>
         <button class="tab-btn" onclick="UI.switchTab('titles')">称号</button>
       </div>
@@ -704,6 +707,16 @@ body {
       <div class="tab-content" id="tab-titles">
         <div id="titles-panel"></div>
       </div>
+
+      <!-- 传闻 -->
+      <div class="tab-content" id="tab-rumors">
+        <div id="rumors-panel"></div>
+      </div>
+
+      <!-- 势力 -->
+      <div class="tab-content" id="tab-factions">
+        <div id="factions-panel"></div>
+      </div>
     </div>
   </div>
 
@@ -713,6 +726,16 @@ body {
     <div id="log-list"></div>
   </div>
 
+</div>
+
+<!-- ===== 选招对决弹窗 ===== -->
+<div class="modal-overlay" id="fight-move-modal" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-title" id="fight-move-title">⚔️ 武功对决</div>
+    <div class="modal-desc" id="fight-move-desc"></div>
+    <div id="fight-move-choices" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;"></div>
+    <button class="modal-close-btn" onclick="UI.closeModal('fight-move-modal')" style="margin-top:12px;">撤退</button>
+  </div>
 </div>
 
 <!-- ===== 事件模态框 ===== -->

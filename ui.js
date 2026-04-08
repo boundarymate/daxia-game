@@ -268,6 +268,13 @@ const UI = {
     document.getElementById('top-energy').textContent = s.energy;
     document.getElementById('top-time').textContent = `第${s.year}年${s.month}月 · 年龄${s.age}岁`;
 
+    // 季节显示
+    const seasonEl = document.getElementById('top-season');
+    if (seasonEl) {
+      const season = Engine.getSeason ? Engine.getSeason() : null;
+      seasonEl.textContent = season ? `${season.icon}${season.name}` : '';
+    }
+
     // 称号显示
     const titleEl = document.getElementById('top-title');
     if (titleEl) {
@@ -350,14 +357,23 @@ const UI = {
       el.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">尚未习得任何武功</div>';
       return;
     }
+    const typeMap = { inner:'内功', sword:'剑法', palm:'掌法', qinggong:'轻功', hidden:'暗器', evil:'邪功' };
     el.innerHTML = s.martialArts.map(m => {
       const ma = DATA.MARTIAL_ARTS.find(x => x.id === m.id);
       if (!ma) return '';
-      const typeMap = { inner:'内功', sword:'剑法', palm:'掌法', qinggong:'轻功', hidden:'暗器', evil:'邪功' };
+      const level = m.level || 1;
+      const exp = m.exp || 0;
+      const expNeeded = level < 10 ? (DATA.MARTIAL_LEVEL_EXP[level] || 99) : 99;
+      const levelName = DATA.MARTIAL_LEVEL_NAMES ? (DATA.MARTIAL_LEVEL_NAMES[level-1] || '入门') : '入门';
+      const pct = Math.min(100, Math.round(exp / expNeeded * 100));
       return `
-        <div class="martial-item">
+        <div class="martial-item" style="cursor:pointer;" onclick="UI.openTrainMartialModal('${ma.id}')" title="点击专项修炼">
           <div class="martial-name">${ma.name}</div>
           <div class="martial-type">${typeMap[ma.type]||ma.type} · ${'★'.repeat(ma.tier)}</div>
+          <div style="font-size:9px;color:var(--gold-dim);margin-top:2px;">「${levelName}」Lv.${level}</div>
+          <div style="height:3px;background:rgba(255,255,255,0.08);border-radius:2px;margin-top:3px;">
+            <div style="height:100%;width:${pct}%;background:var(--gold);border-radius:2px;"></div>
+          </div>
         </div>`;
     }).join('');
   },
@@ -451,14 +467,16 @@ const UI = {
 
   renderCurrentTab() {
     switch (this.currentTab) {
-      case 'actions': this.renderActions(); break;
-      case 'map':     this.renderMap(); break;
-      case 'martial': this.renderMartialLearn(); break;
-      case 'quests':  this.renderQuestsTab(); break;
-      case 'npcs':    this.renderNPCs(); break;
-      case 'sects':   this.renderSects(); break;
-      case 'bag':     this.renderBag(); break;
-      case 'titles':  this.renderTitles(); break;
+      case 'actions':  this.renderActions(); break;
+      case 'map':      this.renderMap(); break;
+      case 'martial':  this.renderMartialLearn(); break;
+      case 'quests':   this.renderQuestsTab(); break;
+      case 'npcs':     this.renderNPCs(); break;
+      case 'sects':    this.renderSects(); break;
+      case 'rumors':   this.renderRumors(); break;
+      case 'factions': this.renderFactions(); break;
+      case 'bag':      this.renderBag(); break;
+      case 'titles':   this.renderTitles(); break;
     }
   },
 
@@ -733,7 +751,7 @@ const UI = {
   switchTab(tab) {
     this.currentTab = tab;
     document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-      const tabs = ['actions','map','martial','quests','npcs','sects','bag','titles'];
+      const tabs = ['actions','map','martial','quests','npcs','sects','rumors','factions','bag','titles'];
       btn.classList.toggle('active', tabs[i] === tab);
     });
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -860,7 +878,40 @@ const UI = {
   },
 
   fightNPC(npcId) {
-    const result = Engine.fight(npcId);
+    // 打开选招弹窗
+    this.openFightMoveModal(npcId);
+  },
+
+  openFightMoveModal(npcId) {
+    const npc = DATA.NPCS.find(n => n.id === npcId);
+    if (!npc) return;
+    const moves = Engine.getAvailableMoves();
+    document.getElementById('fight-move-title').textContent = `⚔️ 对决：${npc.name}`;
+    document.getElementById('fight-move-desc').innerHTML =
+      `<span style="color:var(--text-dim);font-size:11px;">对手：${npc.title}，战力约 ${npc.power}</span><br>
+       <span style="font-size:10px;color:var(--text-muted);">选择出招方式：</span>`;
+    const typeColor = { attack:'var(--red-light)', inner:'var(--blue-light)', qinggong:'var(--green-light)',
+                        defend:'var(--text-dim)', evil:'var(--purple)', hidden:'var(--gold-dim)' };
+    document.getElementById('fight-move-choices').innerHTML = moves.map(mv => {
+      const col = typeColor[mv.type] || 'var(--text)';
+      return `
+        <button onclick="UI.doFightWithMove('${npcId}','${mv.id}')" style="
+          padding:8px 6px;border:1px solid ${col};color:${col};background:rgba(255,255,255,0.03);
+          border-radius:2px;cursor:pointer;font-family:inherit;font-size:11px;text-align:left;">
+          <div style="font-weight:bold;margin-bottom:2px;">${mv.name}</div>
+          <div style="font-size:9px;color:var(--text-muted);">${mv.desc}</div>
+          <div style="font-size:9px;margin-top:2px;">威力×${mv.power.toFixed(1)}</div>
+        </button>`;
+    }).join('');
+    document.getElementById('fight-move-modal').style.display = 'flex';
+  },
+
+  doFightWithMove(npcId, moveId) {
+    document.getElementById('fight-move-modal').style.display = 'none';
+    const result = Engine.fightWithMove(npcId, moveId);
+    if (!result.success) { this.toast(result.msg); return; }
+    const counterTip = result.counterMult > 1.1 ? ' 🔥克制！' : result.counterMult < 0.9 ? ' ❄️被克制' : '';
+    this.toast(result.won ? `胜利！${counterTip}` : `败退…${counterTip}`);
     this.render();
   },
 
@@ -1108,6 +1159,172 @@ const UI = {
 
   setActiveTitle(titleId) {
     Engine.setActiveTitle(titleId);
+    this.render();
+  },
+
+  // ── 传闻面板 ─────────────────────────────────────────────
+  renderRumors() {
+    const container = document.getElementById('rumors-panel');
+    if (!container) return;
+    const rumors = Engine.getActiveRumors();
+    const urgencyColor = { high:'var(--red-light)', medium:'var(--gold)', low:'var(--text-dim)' };
+    const urgencyLabel = { high:'紧急', medium:'普通', low:'陈旧' };
+    const typeIcon = { martial:'📜', weapon:'⚔️', items:'🎁', train:'🧘', combat_win:'🥊',
+                       morality:'🌿', gold:'💰', favor:'❤️', choice:'⚖️' };
+
+    let html = `<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">江湖传闻（${rumors.length}/3）— 每月自动更新</div>`;
+
+    if (rumors.length === 0) {
+      html += '<div style="font-size:11px;color:var(--text-muted);padding:20px 0;text-align:center;">近日江湖平静，暂无传闻……</div>';
+    } else {
+      html += rumors.map((r, idx) => {
+        const col = urgencyColor[r.urgency] || 'var(--text-dim)';
+        const icon = typeIcon[r.reward?.type] || '📋';
+        const reqEntries = Object.entries(r.require || {});
+        const reqStr = reqEntries.length === 0 ? '无' : reqEntries.map(([k,v]) => {
+          if (k === 'inventoryItem') { const item = DATA.ITEMS.find(i=>i.id===v); return `持有${item?.name||v}`; }
+          return `${Engine._statName(k)}≥${v}`;
+        }).join('，');
+        const costStr = `体力${r.cost?.energy||0} · 耗时${r.cost?.time||1}月`;
+        const s = Engine.state;
+        // 检查是否满足条件
+        let canFollow = true;
+        for (const [k,v] of reqEntries) {
+          if (k === 'inventoryItem') { if (!(s.inventory[v]>0)) { canFollow=false; break; } }
+          else if ((s[k]||0) < v) { canFollow=false; break; }
+        }
+        if (s.energy < (r.cost?.energy||0)) canFollow = false;
+
+        return `
+          <div style="padding:10px;background:var(--bg-card);border:1px solid ${col};border-radius:2px;margin-bottom:8px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <span style="font-size:16px;">${icon}</span>
+              <span style="font-size:13px;color:${col};font-weight:bold;">${r.title}</span>
+              <span style="font-size:9px;padding:1px 5px;border:1px solid ${col};color:${col};border-radius:8px;">${urgencyLabel[r.urgency]||'普通'}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px;line-height:1.6;">${r.desc}</div>
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">前往地点：${r.loc} · 条件：${reqStr} · ${costStr}</div>
+            <button onclick="UI.followRumor(${idx})" style="
+              padding:5px 14px;border:1px solid ${canFollow?col:'var(--border)'};
+              color:${canFollow?col:'var(--text-muted)'};
+              background:none;border-radius:2px;cursor:${canFollow?'pointer':'not-allowed'};
+              font-family:inherit;font-size:11px;opacity:${canFollow?1:0.5};"
+              ${canFollow?'':'disabled'}>
+              ${canFollow?'前往探查':'条件不足'}
+            </button>
+          </div>`;
+      }).join('');
+    }
+
+    html += `<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;font-size:10px;color:var(--text-muted);">已处理传闻：${Engine.state.visitedRumors.length} 条</div>`;
+    container.innerHTML = html;
+  },
+
+  followRumor(idx) {
+    const result = Engine.followRumor(idx);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.toast(result.msgs.slice(0,2).join('，'));
+    this.render();
+  },
+
+  // ── 势力面板 ─────────────────────────────────────────────
+  renderFactions() {
+    const container = document.getElementById('factions-panel');
+    if (!container) return;
+    const factions = Engine.getFactionAttitudes();
+
+    let html = `<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">江湖势力关系 — 行善/作恶会影响各势力态度</div>`;
+
+    html += factions.map(f => {
+      const att = f.attitude;
+      const pct = Math.round((att + 100) / 2); // -100~100 → 0~100%
+      const barColor = att >= 10 ? 'var(--green-light)' : att >= -20 ? 'var(--text-dim)' : 'var(--red-light)';
+      return `
+        <div style="padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:2px;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="font-size:18px;">${f.icon}</span>
+            <div style="flex:1;">
+              <div style="font-size:13px;color:var(--gold-light);">${f.name}</div>
+              <div style="font-size:10px;color:var(--text-muted);">${f.desc}</div>
+            </div>
+            <span style="font-size:12px;color:${f.status.color};font-weight:bold;">${f.status.label}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;">
+              <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px;transition:width 0.3s;"></div>
+            </div>
+            <span style="font-size:10px;color:var(--text-muted);min-width:30px;text-align:right;">${att>0?'+':''}${att}</span>
+          </div>
+          ${att <= f.huntThreshold ? `<div style="font-size:10px;color:var(--red-light);margin-top:4px;">⚠️ 该势力正在追杀你！每月有概率遭遇袭击。</div>` : ''}
+        </div>`;
+    }).join('');
+
+    html += `
+      <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">💡 影响势力关系的行为：</div>
+        <div style="font-size:10px;color:var(--text-dim);line-height:1.8;">
+          击杀邪派人物 → 正道好感↑ · 邪道好感↓<br>
+          击杀正道人物 → 邪道好感↑ · 正道好感↓<br>
+          处理传闻（救助村民）→ 朝廷好感↑<br>
+          行侠仗义 → 江湖好感↑
+        </div>
+      </div>`;
+
+    container.innerHTML = html;
+  },
+
+  // ── 专项修炼弹窗 ─────────────────────────────────────────
+  openTrainMartialModal(martialId) {
+    const details = Engine.getMartialDetails();
+    const ma = details.find(m => m.id === martialId);
+    if (!ma) return;
+    const s = Engine.state;
+    const canTrain = s.energy >= 25;
+    const pct = Math.min(100, Math.round(ma.exp / ma.expNeeded * 100));
+    const html = `
+      <div class="modal-overlay" id="train-martial-modal" style="display:flex;">
+        <div class="modal-box">
+          <div class="modal-title">🧘 专项修炼</div>
+          <div style="text-align:center;margin-bottom:12px;">
+            <div style="font-size:18px;color:var(--gold);font-weight:bold;">${ma.name}</div>
+            <div style="font-size:12px;color:var(--text-dim);margin-top:4px;">「${ma.levelName}」境 · Lv.${ma.level}/10</div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-bottom:4px;">
+              <span>修炼进度</span><span>${ma.exp}/${ma.expNeeded}</span>
+            </div>
+            <div style="height:8px;background:rgba(255,255,255,0.08);border-radius:4px;">
+              <div style="height:100%;width:${pct}%;background:var(--gold);border-radius:4px;"></div>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;">
+            专项修炼消耗 <span style="color:var(--gold);">25体力</span>，获得 <span style="color:var(--gold);">3点</span>修炼经验。<br>
+            当前体力：<span style="color:${canTrain?'var(--green-light)':'var(--red-light)'}">${s.energy}</span>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="UI.doTrainMartial('${martialId}')" style="
+              flex:1;padding:8px;border:1px solid ${canTrain?'var(--gold)':'var(--border)'};
+              color:${canTrain?'var(--gold-light)':'var(--text-muted)'};
+              background:none;border-radius:2px;cursor:${canTrain?'pointer':'not-allowed'};
+              font-family:inherit;font-size:12px;" ${canTrain?'':'disabled'}>
+              开始修炼
+            </button>
+            <button onclick="document.getElementById('train-martial-modal').remove()" style="
+              padding:8px 16px;border:1px solid var(--border);color:var(--text-muted);
+              background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
+              取消
+            </button>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  },
+
+  doTrainMartial(martialId) {
+    const modal = document.getElementById('train-martial-modal');
+    if (modal) modal.remove();
+    const result = Engine.trainMartial(martialId);
+    if (!result.success) { this.toast(result.msg); return; }
     this.render();
   },
 

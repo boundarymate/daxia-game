@@ -65,6 +65,19 @@ const Engine = {
       titles: [],           // 已获得称号id列表
       activeTitle: null,    // 当前展示称号
 
+      // Q: 江湖传闻
+      activeRumors: [],     // 当前流传的传闻 [{...rumorData, expiresAt}]
+      visitedRumors: [],    // 已前往处理的传闻id
+
+      // O: 季节
+      season: 'spring',     // 当前季节
+
+      // N: 势力态度
+      factionAttitude: {},  // {factionId: attitude值 -100~100}
+
+      // M: 武功修炼经验
+      martialExp: {},       // {martialId: exp值}
+
       // 日志
       log: [],
       eventHistory: [],
@@ -96,12 +109,19 @@ const Engine = {
     // 初始化NPC好感度
     DATA.NPCS.forEach(n => { base.npcFavor[n.id] = n.favor; });
 
+    // 初始化势力态度
+    DATA.FACTIONS.forEach(f => { base.factionAttitude[f.id] = f.initialAttitude; });
+
     this.state = base;
     this.addLog('你踏上了江湖之路，一切从这里开始……', 'story');
     this.addLog(`初始地点：${this.getLocation().name}`, 'info');
 
     // 生成初始悬赏令
     this._refreshBounties();
+    // 生成初始传闻
+    this._refreshRumors();
+    // 设置初始季节
+    this._updateSeason();
     return base;
   },
 
@@ -158,8 +178,12 @@ const Engine = {
       s.month++;
       if (s.month > 12) { s.month = 1; s.year++; s.age++; }
 
-      // 每月恢复体力
-      s.energy = Math.min(100, s.energy + 30);
+      // O: 更新季节
+      this._updateSeason();
+      // O: 季节影响体力恢复
+      const seasonEff = this.getSeasonEffects();
+      const energyRegen = 30 + (seasonEff.energyRegen || 0);
+      s.energy = Math.min(100, s.energy + energyRegen);
       // 每月恢复气血
       s.hp = Math.min(s.maxHp, s.hp + 10);
       // 门派月度收益
@@ -170,6 +194,18 @@ const Engine = {
       this._checkQuestDeadlines();
       // 每3个月刷新悬赏令
       if ((s.month % 3) === 1) this._refreshBounties();
+      // Q: 每2个月刷新传闻，清理过期传闻
+      this._tickRumors();
+      // N: 检查势力追杀
+      this._checkFactionHunt();
+      // N: 邪气高时自动降低正道好感
+      if (s.evil > 30 && s.month % 3 === 0) {
+        this._applyFactionTrigger('high_evil');
+      }
+      // N: 声望高时提升江湖好感
+      if (s.reputation > 50 && s.month % 6 === 0) {
+        this._applyFactionTrigger('high_reputation');
+      }
     }
     // 检查称号
     this._checkTitles();
@@ -375,23 +411,34 @@ const Engine = {
     const s = this.state;
     const gains = {};
     const titleBonus = this._getTitleBonus();
-    const trainMod = 1 + (titleBonus.trainingBonus || 0) / 100;
+    const seasonEff = this.getSeasonEffects();
+    const trainMod = 1 + (titleBonus.trainingBonus || 0) / 100
+                       + (seasonEff.trainBonus || 0) / 100;
     const base = Math.ceil((1 + Math.floor(s.perception / 20)) * trainMod);
 
     // 根据已学武功决定修炼方向
-    const hasInner = s.martialArts.some(m => {
+    const innerMartials = s.martialArts.filter(m => {
       const ma = DATA.MARTIAL_ARTS.find(x => x.id === m.id);
       return ma && ma.type === 'inner';
     });
-    const hasSword = s.martialArts.some(m => {
+    const swordMartials = s.martialArts.filter(m => {
       const ma = DATA.MARTIAL_ARTS.find(x => x.id === m.id);
       return ma && ma.type === 'sword';
     });
 
-    if (hasInner) gains.innerPower = base + Math.floor(Math.random() * 3);
-    else gains.innerPower = 1;
+    const innerMod = 1 + (seasonEff.innerBonus || 0) / 100;
+    const swordMod = 1 + (seasonEff.swordBonus || 0) / 100;
 
-    if (hasSword) gains.swordSkill = base + Math.floor(Math.random() * 2);
+    if (innerMartials.length > 0) {
+      gains.innerPower = Math.ceil((base + Math.floor(Math.random() * 3)) * innerMod);
+      // M: 给内功武功增加修炼经验
+      innerMartials.forEach(m => this._addMartialExp(m.id, 1));
+    } else gains.innerPower = 1;
+
+    if (swordMartials.length > 0) {
+      gains.swordSkill = Math.ceil((base + Math.floor(Math.random() * 2)) * swordMod);
+      swordMartials.forEach(m => this._addMartialExp(m.id, 1));
+    }
     gains.endurance = 1;
     if (Math.random() < 0.3) gains.strength = 1;
     if (Math.random() < 0.3) gains.agility = 1;
@@ -1265,6 +1312,442 @@ const Engine = {
   // ── 获取悬赏令 ─────────────────────────────────────────────
   getActiveBounties() {
     return this.state.activeBounties;
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  Q: 江湖传闻系统
+  // ════════════════════════════════════════════════════════════
+
+  // 刷新/生成传闻
+  _refreshRumors() {
+    const s = this.state;
+    const maxRumors = 3;
+    if (s.activeRumors.length >= maxRumors) return;
+    const currentMonth = s.year * 12 + s.month;
+    const templates = DATA.RUMORS;
+    const used = new Set(s.activeRumors.map(r => r.templateId));
+
+    let attempts = 0;
+    while (s.activeRumors.length < maxRumors && attempts < 20) {
+      attempts++;
+      const tpl = templates[Math.floor(Math.random() * templates.length)];
+      if (used.has(tpl.id)) continue;
+      used.add(tpl.id);
+
+      const loc = tpl.locs[Math.floor(Math.random() * tpl.locs.length)];
+      let desc = tpl.desc.replace('{loc}', loc);
+      if (tpl.names) {
+        const name = tpl.names[Math.floor(Math.random() * tpl.names.length)];
+        desc = desc.replace('{name}', name);
+      }
+      if (tpl.sects) {
+        const pair = tpl.sects[Math.floor(Math.random() * tpl.sects.length)];
+        desc = desc.replace('{sect1}', pair[0]).replace('{sect2}', pair[1]);
+      }
+
+      s.activeRumors.push({
+        templateId: tpl.id,
+        type: tpl.type,
+        urgency: tpl.urgency,
+        title: tpl.title,
+        desc,
+        loc,
+        reward: tpl.reward,
+        require: tpl.require || {},
+        cost: tpl.cost,
+        expiresAt: currentMonth + 6 + Math.floor(Math.random() * 6),
+      });
+    }
+  },
+
+  // 每月处理传闻（清理过期、补充新传闻）
+  _tickRumors() {
+    const s = this.state;
+    const currentMonth = s.year * 12 + s.month;
+    const before = s.activeRumors.length;
+    s.activeRumors = s.activeRumors.filter(r => r.expiresAt > currentMonth);
+    if (s.activeRumors.length < before) {
+      this.addLog('有几条江湖传闻已成旧事，新的消息又在流传……', 'info');
+    }
+    if (Math.random() < 0.4) this._refreshRumors();
+  },
+
+  // 前往处理传闻
+  followRumor(rumorIdx) {
+    const s = this.state;
+    const rumor = s.activeRumors[rumorIdx];
+    if (!rumor) return { success:false, msg:'传闻不存在' };
+
+    // 检查前置条件
+    for (const [k, v] of Object.entries(rumor.require)) {
+      if (k === 'inventoryItem') {
+        if (!(s.inventory[v] > 0)) return { success:false, msg:`需要持有${DATA.ITEMS.find(i=>i.id===v)?.name||v}` };
+      } else if ((s[k] || 0) < v) {
+        return { success:false, msg:`需要${this._statName(k)}达到${v}` };
+      }
+    }
+
+    const cost = rumor.cost;
+    if (cost.energy && s.energy < cost.energy) return { success:false, msg:'体力不足' };
+    if (cost.energy) s.energy -= cost.energy;
+
+    // 执行奖励
+    const reward = rumor.reward;
+    const msgs = [];
+    let success = true;
+
+    switch (reward.type) {
+      case 'martial': {
+        const unlearned = DATA.MARTIAL_ARTS.filter(m =>
+          !s.martialArts.find(x => x.id === m.id) && m.tier <= 3
+        );
+        if (unlearned.length > 0) {
+          const ma = unlearned[Math.floor(Math.random() * unlearned.length)];
+          s.martialArts.push({ id: ma.id, level:1, exp:0 });
+          this._applyBonus(s, ma.effect);
+          msgs.push(`习得武功【${ma.name}】！`);
+        } else {
+          msgs.push('武学秘籍已被他人取走，空手而归。');
+          success = false;
+        }
+        break;
+      }
+      case 'weapon': {
+        const w = this._getRandomWeapon();
+        if (w) { s.weapons.push(w.id); msgs.push(`获得神兵【${w.name}】！`); }
+        else { msgs.push('神兵已被人捷足先登。'); success = false; }
+        break;
+      }
+      case 'items': {
+        reward.items.forEach(id => {
+          this.addItem(id, 1);
+          const item = DATA.ITEMS.find(i => i.id === id);
+          if (item) msgs.push(`获得${item.icon}${item.name}`);
+        });
+        break;
+      }
+      case 'train': {
+        this._applyBonus(s, reward.bonus);
+        const bonusStr = Object.entries(reward.bonus).map(([k,v])=>`${this._statName(k)}+${v}`).join('，');
+        msgs.push(`获得高人指点：${bonusStr}`);
+        break;
+      }
+      case 'combat_win': {
+        const power = this._calcCombatPower();
+        if (power < 40 && Math.random() < 0.5) {
+          s.hp = Math.max(1, s.hp - 30);
+          msgs.push('实力不足，铩羽而归，受了重伤。');
+          success = false;
+        } else {
+          if (reward.gold) { s.gold += reward.gold; msgs.push(`获得${reward.gold}两银子`); }
+          if (reward.reputation) { s.reputation += reward.reputation; msgs.push(`声望+${reward.reputation}`); }
+          if (reward.exp) this._gainExp(reward.exp);
+          msgs.push('大获全胜！');
+        }
+        break;
+      }
+      case 'morality': {
+        if (reward.morality) { s.morality = Math.min(100, s.morality + reward.morality); msgs.push(`道德+${reward.morality}`); }
+        if (reward.reputation) { s.reputation += reward.reputation; msgs.push(`声望+${reward.reputation}`); }
+        if (reward.gold) { s.gold += reward.gold; msgs.push(`获得${reward.gold}两`); }
+        // 消耗草药
+        if (rumor.require.inventoryItem) {
+          const cnt = Math.min(s.inventory[rumor.require.inventoryItem] || 0, 3);
+          s.inventory[rumor.require.inventoryItem] = Math.max(0, (s.inventory[rumor.require.inventoryItem]||0) - cnt);
+          msgs.push(`消耗草药×${cnt}`);
+        }
+        this._applyFactionTrigger('help_village');
+        break;
+      }
+      case 'gold': {
+        const gold = reward.gold + Math.floor(Math.random() * 50);
+        s.gold += gold;
+        msgs.push(`获得${gold}两银子`);
+        break;
+      }
+      case 'favor': {
+        // 随机提升一个NPC好感
+        const npcIds = Object.keys(s.npcFavor);
+        if (npcIds.length > 0) {
+          const npcId = npcIds[Math.floor(Math.random() * npcIds.length)];
+          s.npcFavor[npcId] = Math.min(100, (s.npcFavor[npcId]||0) + (reward.npcBonus||20));
+          const npc = DATA.NPCS.find(n => n.id === npcId);
+          msgs.push(`与${npc?.name||'故人'}叙旧，好感+${reward.npcBonus||20}`);
+        }
+        break;
+      }
+      case 'choice': {
+        msgs.push('你参与了门派纷争的调停，声望有所提升。');
+        s.reputation += 20;
+        s.morality = Math.min(100, s.morality + 5);
+        break;
+      }
+    }
+
+    this.advanceTime(cost.time);
+    // 移除已处理的传闻
+    s.activeRumors.splice(rumorIdx, 1);
+    s.visitedRumors.push(rumor.templateId);
+
+    const resultText = msgs.join('，');
+    this.addLog(`【${rumor.title}】${success?'':'（失败）'} ${resultText}`, success?'success':'danger');
+    this._checkTitles();
+    return { success, rumor, msgs };
+  },
+
+  getActiveRumors() {
+    return this.state.activeRumors;
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  O: 季节系统
+  // ════════════════════════════════════════════════════════════
+
+  _updateSeason() {
+    const month = this.state.month;
+    let season = 'winter';
+    for (const [key, data] of Object.entries(DATA.SEASONS)) {
+      if (data.months.includes(month)) { season = key; break; }
+    }
+    const prev = this.state.season;
+    this.state.season = season;
+    if (prev !== season) {
+      const s = DATA.SEASONS[season];
+      this.addLog(`${s.icon} 时节更替，已入${s.name}季。${s.desc}`, 'story');
+    }
+  },
+
+  getSeason() {
+    return DATA.SEASONS[this.state.season] || DATA.SEASONS.spring;
+  },
+
+  getSeasonEffects() {
+    return this.getSeason().effects || {};
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  N: 江湖势力系统
+  // ════════════════════════════════════════════════════════════
+
+  // 应用势力触发器
+  _applyFactionTrigger(trigger) {
+    const s = this.state;
+    DATA.FACTION_RULES.filter(r => r.trigger === trigger).forEach(rule => {
+      const cur = s.factionAttitude[rule.faction] || 0;
+      s.factionAttitude[rule.faction] = Math.max(-100, Math.min(100, cur + rule.delta));
+    });
+  },
+
+  // 检查是否触发追杀
+  _checkFactionHunt() {
+    const s = this.state;
+    DATA.FACTIONS.forEach(faction => {
+      const attitude = s.factionAttitude[faction.id] || 0;
+      if (attitude <= faction.huntThreshold && Math.random() < 0.15) {
+        const hpLoss = 15 + Math.floor(Math.random() * 20);
+        s.hp = Math.max(1, s.hp - hpLoss);
+        this.addLog(`⚠️ ${faction.name}的人马追杀而来！你仓皇逃脱，损失气血${hpLoss}点。`, 'danger');
+      }
+    });
+  },
+
+  // 获取势力态度列表
+  getFactionAttitudes() {
+    const s = this.state;
+    return DATA.FACTIONS.map(f => ({
+      ...f,
+      attitude: s.factionAttitude[f.id] || 0,
+      status: this._getFactionStatus(s.factionAttitude[f.id] || 0),
+    }));
+  },
+
+  _getFactionStatus(attitude) {
+    if (attitude >= 70) return { label:'崇拜', color:'var(--gold)' };
+    if (attitude >= 40) return { label:'友好', color:'var(--green-light)' };
+    if (attitude >= 10) return { label:'中立', color:'var(--text-dim)' };
+    if (attitude >= -20) return { label:'冷淡', color:'var(--text-muted)' };
+    if (attitude >= -50) return { label:'敌视', color:'var(--red-light)' };
+    return { label:'追杀', color:'var(--red)' };
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  M: 武功升级系统
+  // ════════════════════════════════════════════════════════════
+
+  // 增加武功修炼经验，检查升级
+  _addMartialExp(martialId, amount) {
+    const s = this.state;
+    const martialEntry = s.martialArts.find(m => m.id === martialId);
+    if (!martialEntry) return;
+
+    martialEntry.exp = (martialEntry.exp || 0) + amount;
+    const currentLevel = martialEntry.level || 1;
+    if (currentLevel >= 10) return;
+
+    const expNeeded = DATA.MARTIAL_LEVEL_EXP[currentLevel]; // 升到下一级需要的累计exp
+    if (martialEntry.exp >= expNeeded) {
+      martialEntry.level = currentLevel + 1;
+      const ma = DATA.MARTIAL_ARTS.find(m => m.id === martialId);
+      const levelName = DATA.MARTIAL_LEVEL_NAMES[martialEntry.level - 1];
+      this.addLog(`🌟 【${ma?.name}】修炼突破，达到「${levelName}」境！`, 'success');
+      // 应用升级加成
+      this._applyMartialLevelBonus(martialId, martialEntry.level);
+    }
+  },
+
+  // 应用武功升级加成
+  _applyMartialLevelBonus(martialId, newLevel) {
+    const s = this.state;
+    const ma = DATA.MARTIAL_ARTS.find(m => m.id === martialId);
+    if (!ma) return;
+    const bonusTable = DATA.MARTIAL_LEVEL_BONUS[ma.type] || DATA.MARTIAL_LEVEL_BONUS.inner;
+    const bonus = bonusTable[newLevel] || 0;
+    if (bonus <= 0) return;
+
+    switch (ma.type) {
+      case 'inner':    s.innerPower += bonus; break;
+      case 'sword':    s.swordSkill += bonus; break;
+      case 'palm':     s.strength += bonus; s.innerPower += Math.floor(bonus/2); break;
+      case 'qinggong': s.agility += bonus; break;
+      case 'hidden':   s.speed += bonus; s.perception += Math.floor(bonus/2); break;
+      case 'evil':
+        s.innerPower += bonus;
+        s.morality = Math.max(0, s.morality - 2);
+        break;
+    }
+  },
+
+  // 专项修炼某门武功（消耗体力，专注提升该武功等级）
+  trainMartial(martialId) {
+    const s = this.state;
+    const martialEntry = s.martialArts.find(m => m.id === martialId);
+    if (!martialEntry) return { success:false, msg:'你尚未习得此武功' };
+    if (s.energy < 25) return { success:false, msg:'体力不足（需要25）' };
+
+    s.energy -= 25;
+    // 专项修炼给3点经验
+    this._addMartialExp(martialId, 3);
+    this.advanceTime(1);
+
+    const ma = DATA.MARTIAL_ARTS.find(m => m.id === martialId);
+    const levelName = DATA.MARTIAL_LEVEL_NAMES[(martialEntry.level||1) - 1];
+    const expNeeded = DATA.MARTIAL_LEVEL_EXP[martialEntry.level||1];
+    const expLeft = expNeeded - (martialEntry.exp||0);
+    this.addLog(`专项修炼【${ma?.name}】，当前「${levelName}」，距下一层还需${Math.max(0,expLeft)}次修炼。`, 'normal');
+    return { success:true, martial: ma, entry: martialEntry };
+  },
+
+  // 获取武功详情（含等级信息）
+  getMartialDetails() {
+    const s = this.state;
+    return s.martialArts.map(entry => {
+      const ma = DATA.MARTIAL_ARTS.find(m => m.id === entry.id);
+      if (!ma) return null;
+      const level = entry.level || 1;
+      const exp = entry.exp || 0;
+      const expNeeded = level < 10 ? DATA.MARTIAL_LEVEL_EXP[level] : 999;
+      const levelName = DATA.MARTIAL_LEVEL_NAMES[level - 1];
+      return { ...ma, level, exp, expNeeded, levelName };
+    }).filter(Boolean);
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  P: 武功对决系统
+  // ════════════════════════════════════════════════════════════
+
+  // 获取可用招式列表
+  getAvailableMoves() {
+    const s = this.state;
+    const moves = [...DATA.COMBAT_MOVES.default];
+    s.martialArts.forEach(entry => {
+      const ma = DATA.MARTIAL_ARTS.find(m => m.id === entry.id);
+      if (!ma) return;
+      const typeMoves = DATA.COMBAT_MOVES[ma.type] || [];
+      typeMoves.forEach(mv => {
+        if (!moves.find(m => m.id === mv.id)) moves.push(mv);
+      });
+    });
+    return moves;
+  },
+
+  // 武功对决（选择招式）
+  fightWithMove(npcId, moveId) {
+    const s = this.state;
+    const npc = DATA.NPCS.find(n => n.id === npcId);
+    if (!npc) return { success:false, msg:'对手不存在' };
+
+    const move = this.getAvailableMoves().find(m => m.id === moveId);
+    if (!move) return { success:false, msg:'招式不存在' };
+
+    const myBasePower = this._calcCombatPower();
+    const enemyPower = npc.power;
+
+    // 计算招式加成
+    let movePowerMult = move.power;
+    // 克制关系
+    const enemyType = npc.martialType || 'normal';
+    const counter = DATA.COMBAT_COUNTER[move.type] || {};
+    const counterMult = counter[enemyType] || 1.0;
+    movePowerMult *= counterMult;
+
+    const myEffPower = myBasePower * movePowerMult;
+
+    // 防御招式特殊处理
+    let hpLoss = Math.floor(enemyPower * (0.1 + Math.random() * 0.2));
+    if (move.type === 'defend') {
+      hpLoss = Math.floor(hpLoss * (1 - (move.dodgeBonus || 0) - (move.defBonus || 0)));
+    }
+
+    // 特殊效果
+    const specialMsgs = [];
+    if (move.drain) {
+      const drain = Math.floor(enemyPower * 0.1);
+      s.innerPower += drain;
+      specialMsgs.push(`吸取内力+${drain}`);
+    }
+    if (move.selfDmg) {
+      const selfDmg = Math.floor(myBasePower * move.selfDmg);
+      s.hp = Math.max(1, s.hp - selfDmg);
+      specialMsgs.push(`自损气血${selfDmg}`);
+    }
+    if (move.debuff === 'poison') {
+      specialMsgs.push('对手中毒，内力受损');
+    }
+
+    const winChance = myEffPower / (myEffPower + enemyPower);
+    const won = Math.random() < winChance;
+
+    s.hp = Math.max(1, s.hp - hpLoss);
+
+    // 生成战斗描述
+    const counterDesc = counterMult > 1.1 ? '（克制！）' : counterMult < 0.9 ? '（被克制）' : '';
+    const moveDesc = `你使出【${move.name}】${counterDesc}，${move.desc}`;
+
+    if (won) {
+      s.battlesWon++;
+      const expGain = Math.floor(enemyPower / 2);
+      this._gainExp(expGain);
+      s.reputation += Math.floor(enemyPower / 10);
+      if (npc.align === 'evil') {
+        s.morality = Math.min(100, s.morality + 5);
+        s.reputation += 10;
+        this._applyFactionTrigger('kill_evil_npc');
+      } else {
+        s.morality = Math.max(0, s.morality - 5);
+        s.evil += 5;
+        this._applyFactionTrigger('kill_good_npc');
+      }
+      // M: 战斗给武功加经验
+      s.martialArts.forEach(entry => this._addMartialExp(entry.id, 1));
+      const specialStr = specialMsgs.length ? `（${specialMsgs.join('，')}）` : '';
+      this.addLog(`${moveDesc}。你击败了${npc.name}！损失气血${hpLoss}点${specialStr}。`, 'success');
+      return { success:true, won:true, hpLoss, expGain, moveDesc, counterMult };
+    } else {
+      s.battlesLost++;
+      s.hp = Math.max(1, s.hp - hpLoss);
+      this.addLog(`${moveDesc}。你不敌${npc.name}，败退而走，损失气血${hpLoss}点。`, 'danger');
+      return { success:true, won:false, hpLoss, moveDesc, counterMult };
+    }
   },
 
   // ── 保存/读取 ─────────────────────────────────────────────

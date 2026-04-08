@@ -113,6 +113,35 @@ const Engine = {
       triggeredEraEvents: [],   // 已触发的年代事件id列表
       pendingEraEvent: null,    // 待处理的年代事件
 
+      // K: 天气系统
+      currentWeather: 'sunny',  // 当前天气id
+      weatherDesc: '',          // 天气描述文本
+
+      // L: 境界突破
+      triggeredBreakthroughs: [], // 已触发的突破id列表
+      pendingBreakthrough: null,  // 待处理的突破事件id
+      breakthroughFailed: 0,      // 本次突破失败次数（影响下次成功率）
+
+      // P: 江湖恩怨
+      grudges: [],              // [{npcId, name, reason, intensity, createdAt}] intensity: 1-3
+      debts: [],                // [{npcId, name, reason, intensity, createdAt}] 恩情
+
+      // Q2: 行动连击
+      comboCount: 0,            // 当前连击数（同类行动连续次数）
+      lastActionType: null,     // 上次行动类型
+      comboBonus: 0,            // 当前连击加成%
+
+      // R: 死亡与重伤
+      isInjured: false,         // 是否重伤
+      injuredMonthsLeft: 0,     // 重伤剩余月数
+      injuryDesc: '',           // 重伤描述
+      deathCount: 0,            // 死亡次数（鬼门关走过几次）
+      nearDeathExp: 0,          // 鬼门关经验（影响某些属性）
+
+      // S: 富事件（多段对话）
+      pendingRichEvent: null,   // 当前进行中的富事件 {eventId, stepId}
+      completedRichEvents: [],  // 已完成的富事件id列表
+
       // 日志
       log: [],
       eventHistory: [],
@@ -255,6 +284,14 @@ const Engine = {
       this.checkLocationUnlocks();
       // J: 检查年代事件（每年1月）
       if (s.month === 1) this._checkEraEvents();
+      // K: 每月更新天气
+      this._updateWeather();
+      // L: 检查境界突破
+      this._checkBreakthroughs();
+      // R: 重伤倒计时
+      this._tickInjury();
+      // S: 随机触发富事件（10%概率，无待处理事件时）
+      if (!s.pendingRichEvent && Math.random() < 0.10) this._triggerRichEvent();
     }
     // 检查称号（含新结局）
     this._checkTitles();
@@ -302,11 +339,21 @@ const Engine = {
 
       case 'rest': {
         // 休息：恢复体力和气血
-        const hpGain = Math.floor(s.maxHp * 0.3);
+        this._updateCombo('rest');
+        const weatherRestBonus = this.getWeatherBonus('rest');
+        const restMult = 1 + weatherRestBonus / 100;
+        const hpGain = Math.floor(s.maxHp * 0.3 * restMult);
         s.hp = Math.min(s.maxHp, s.hp + hpGain);
-        s.energy = Math.min(100, s.energy + 40);
+        s.energy = Math.min(100, s.energy + Math.floor(40 * restMult));
+        // 重伤时休息额外恢复
+        if (s.isInjured) {
+          s.injuredMonthsLeft = Math.max(0, s.injuredMonthsLeft - 0.5);
+          this.addLog('重伤中休息，伤势恢复加快。', 'normal');
+        }
         this.advanceTime(1);
-        this.addLog(`你在${this.getLocation().name}休息了一个月，气血恢复了 ${hpGain} 点。`, 'normal');
+        const w = this.getWeather();
+        const weatherNote = weatherRestBonus !== 0 ? `（${w.icon}${w.name}：休息效果${weatherRestBonus > 0 ? '+' : ''}${weatherRestBonus}%）` : '';
+        this.addLog(`你在${this.getLocation().name}休息了一个月，气血恢复了 ${hpGain} 点。${weatherNote}`, 'normal');
         results.push({ type:'hp', val:hpGain });
         break;
       }
@@ -317,9 +364,24 @@ const Engine = {
           this.addLog('体力不足，无法修炼。', 'warn');
           return { success:false, msg:'体力不足' };
         }
+        if (s.isInjured) {
+          this.addLog('你正在重伤中，强行修炼会加重伤势！', 'warn');
+          // 重伤修炼有30%概率加重伤势
+          if (Math.random() < 0.3) {
+            s.injuredMonthsLeft += 1;
+            this.addLog('伤势加重，多需1个月休养。', 'danger');
+          }
+        }
+        this._updateCombo('train');
+        const comboMult = this.getComboMultiplier();
+        const injuryMult = this.getInjuryPenalty();
         s.energy -= 20;
         const gains = this._calcTrainGain();
-        Object.keys(gains).forEach(k => { s[k] = (s[k]||0) + gains[k]; });
+        // 应用连击和重伤加成
+        Object.keys(gains).forEach(k => {
+          gains[k] = Math.max(1, Math.round(gains[k] * comboMult * injuryMult));
+          s[k] = (s[k]||0) + gains[k];
+        });
         this.advanceTime(1);
         const gainStr = Object.entries(gains).map(([k,v])=>`${this._statName(k)}+${v}`).join('，');
 
@@ -356,11 +418,25 @@ const Engine = {
           this.addLog('盘缠不足，无法出行。', 'warn');
           return { success:false, msg:'金钱不足' };
         }
+        if (s.isInjured) {
+          this.addLog('你正在重伤中，游历会消耗更多体力。', 'warn');
+        }
+        this._updateCombo('wander');
+        const wanderComboMult = this.getComboMultiplier();
+        const wanderInjuryMult = this.getInjuryPenalty();
+        const weatherWanderBonus = this.getWeatherBonus('wander');
         s.gold -= cost.gold;
         this.advanceTime(cost.time);
         const wanderGain = this._calcWanderGain();
-        Object.keys(wanderGain).forEach(k => { s[k] = (s[k]||0) + wanderGain[k]; });
-        this.addLog(`你游历江湖${cost.time}个月，花费${cost.gold}两银子，见识大增。`, 'story');
+        // 应用连击、重伤、天气加成
+        const wanderMult = wanderComboMult * wanderInjuryMult * (1 + weatherWanderBonus / 100);
+        Object.keys(wanderGain).forEach(k => {
+          wanderGain[k] = Math.max(0, Math.round(wanderGain[k] * wanderMult));
+          s[k] = (s[k]||0) + wanderGain[k];
+        });
+        const ww = this.getWeather();
+        const weatherWNote = weatherWanderBonus !== 0 ? `（${ww.icon}${ww.name}：游历效果${weatherWanderBonus > 0 ? '+' : ''}${weatherWanderBonus}%）` : '';
+        this.addLog(`你游历江湖${cost.time}个月，花费${cost.gold}两银子，见识大增。${weatherWNote}`, 'story');
         results.push({ type:'wander', gains:wanderGain });
         break;
       }
@@ -910,20 +986,38 @@ const Engine = {
     const npc = DATA.NPCS.find(n => n.id === npcId);
     if (!npc) return { success:false, msg:'对手不存在' };
 
-    const myPower = this._calcCombatPower();
+    // 重伤时战斗力减半
+    const injuryMult = this.getInjuryPenalty();
+    // 连击加成
+    this._updateCombo('fight');
+    const comboMult = this.getComboMultiplier();
+
+    let myPower = this._calcCombatPower() * injuryMult * comboMult;
     const enemyPower = npc.power;
 
-    const winChance = myPower / (myPower + enemyPower);
+    // 检查是否有仇人加成（仇人更强）
+    const grudge = s.grudges.find(g => g.npcId === npcId);
+    const enemyFinalPower = grudge ? enemyPower * (1 + grudge.intensity * 0.2) : enemyPower;
+
+    const winChance = myPower / (myPower + enemyFinalPower);
     const won = Math.random() < winChance;
 
-    const hpLoss = Math.floor(enemyPower * (0.1 + Math.random() * 0.2));
-    s.hp = Math.max(1, s.hp - hpLoss);
+    const hpLoss = Math.floor(enemyFinalPower * (0.1 + Math.random() * 0.2));
+    s.hp = Math.max(0, s.hp - hpLoss);
 
-    if (won) {
+    // 检查濒死
+    let nearDeath = false;
+    let nearDeathResult = null;
+    if (s.hp <= 0) {
+      nearDeathResult = this._checkNearDeath();
+      nearDeath = true;
+    }
+
+    if (won && !nearDeath) {
       s.battlesWon++;
-      const expGain = Math.floor(enemyPower / 2);
+      const expGain = Math.floor(enemyFinalPower / 2);
       this._gainExp(expGain);
-      s.reputation += Math.floor(enemyPower / 10);
+      s.reputation += Math.floor(enemyFinalPower / 10);
       // 好感度变化
       if (npc.align === 'evil') {
         s.morality = Math.min(100, s.morality + 5);
@@ -932,13 +1026,49 @@ const Engine = {
         s.morality = Math.max(0, s.morality - 5);
         s.evil += 5;
       }
+      // 击败仇人：化解仇怨
+      if (grudge) {
+        this.resolveGrudge(npcId);
+        this.addLog(`你击败了仇人【${npc.name}】，一雪前耻！`, 'success');
+      }
+      // 击败恩人：结下新仇怨
+      const debt = s.debts.find(d => d.npcId === npcId);
+      if (debt) {
+        this.addGrudge(npcId, npc.name, '恩将仇报，出手伤人', 2);
+        s.morality = Math.max(0, s.morality - 15);
+      }
       this.addLog(`你与${npc.name}大战一场，最终获胜！损失气血${hpLoss}点，获得经验${expGain}。`, 'success');
-      return { success:true, won:true, hpLoss, expGain };
+      return { success:true, won:true, hpLoss, expGain, nearDeath };
+    } else if (nearDeath) {
+      s.battlesLost++;
+      // 败给仇人：仇怨加深
+      if (grudge) {
+        grudge.intensity = Math.min(3, grudge.intensity + 1);
+        this.addLog(`你被仇人【${npc.name}】击败，仇怨加深！`, 'danger');
+      } else {
+        // 新结仇怨
+        this.addGrudge(npcId, npc.name, '战败受辱', 1);
+      }
+      this.addLog(`你与${npc.name}交手，身受重伤，险些丧命！`, 'danger');
+      return { success:true, won:false, hpLoss, nearDeath: true, nearDeathResult };
     } else {
       s.battlesLost++;
-      s.hp = Math.max(1, s.hp - hpLoss);
+      s.hp = Math.max(1, s.hp);
+      // 败给仇人：仇怨加深
+      if (grudge) {
+        grudge.intensity = Math.min(3, grudge.intensity + 1);
+      } else {
+        // 有一定概率结下仇怨
+        if (Math.random() < 0.3) {
+          this.addGrudge(npcId, npc.name, '战败受辱', 1);
+        }
+      }
+      // 重伤判定：血量低于20%时触发重伤
+      if (s.hp < s.maxHp * 0.2 && !s.isInjured) {
+        this._applyInjury(`与${npc.name}交手受伤`, 2);
+      }
       this.addLog(`你与${npc.name}交手，不敌对方，狼狈败退，损失气血${hpLoss}点。`, 'danger');
-      return { success:true, won:false, hpLoss };
+      return { success:true, won:false, hpLoss, nearDeath: false };
     }
   },
 
@@ -2783,6 +2913,346 @@ const Engine = {
     this._checkTitles();
     this.addLog(`✅ 你做出了选择：${choice.text}`, 'normal');
     return { success: true, era, choice };
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  K: 天气系统
+  // ══════════════════════════════════════════════════════════
+  _updateWeather() {
+    const s = this.state;
+    // 每月有40%概率天气变化
+    if (Math.random() > 0.4 && s.currentWeather) return;
+    const types = DATA.WEATHER_TYPES;
+    const totalWeight = types.reduce((a, b) => a + b.weight, 0);
+    let r = Math.random() * totalWeight;
+    let chosen = types[0];
+    for (const t of types) {
+      r -= t.weight;
+      if (r <= 0) { chosen = t; break; }
+    }
+    const changed = s.currentWeather !== chosen.id;
+    s.currentWeather = chosen.id;
+    s.weatherDesc = chosen.desc;
+    if (changed) {
+      this.addLog(`${chosen.icon} 天气变化：${chosen.name}。${chosen.desc}`, 'info');
+    }
+  },
+
+  getWeather() {
+    const s = this.state;
+    return DATA.WEATHER_TYPES.find(w => w.id === s.currentWeather) || DATA.WEATHER_TYPES[0];
+  },
+
+  // 获取天气对某类行动的加成（返回百分比，可正可负）
+  getWeatherBonus(actionType) {
+    const w = this.getWeather();
+    const eff = w.effects || {};
+    const map = {
+      train:   (eff.trainBonus || 0),
+      inner:   (eff.innerBonus || 0),
+      wander:  (eff.wanderBonus || 0) - (eff.wanderPenalty || 0),
+      explore: (eff.exploreBonus || 0) - (eff.explorePenalty || 0),
+      rest:    (eff.restBonus || 0),
+      agility: (eff.agilityBonus || 0),
+      stealth: (eff.stealthBonus || 0),
+      energy:  -(eff.energyPenalty || 0),
+    };
+    return map[actionType] || 0;
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  L: 境界突破系统
+  // ══════════════════════════════════════════════════════════
+  _checkBreakthroughs() {
+    const s = this.state;
+    if (s.pendingBreakthrough) return; // 已有待处理突破
+    for (const bt of DATA.BREAKTHROUGH_EVENTS) {
+      if (s.triggeredBreakthroughs.includes(bt.id)) continue;
+      if ((s[bt.stat] || 0) >= bt.threshold) {
+        s.pendingBreakthrough = bt.id;
+        this.addLog(`⚡ 你感到${bt.name}的契机已到，是否尝试突破？`, 'warning');
+        return;
+      }
+    }
+  },
+
+  // 尝试突破（玩家主动触发）
+  attemptBreakthrough(btId) {
+    const s = this.state;
+    const bt = DATA.BREAKTHROUGH_EVENTS.find(b => b.id === btId);
+    if (!bt) return { success: false, msg: '突破事件不存在' };
+    if (s.triggeredBreakthroughs.includes(btId)) return { success: false, msg: '已经突破过了' };
+
+    // 检查消耗
+    if (s.energy < bt.cost.energy) return { success: false, msg: `体力不足，需要 ${bt.cost.energy} 点体力` };
+    if (s.gold < bt.cost.gold) return { success: false, msg: `银两不足，需要 ${bt.cost.gold} 两` };
+
+    s.energy -= bt.cost.energy;
+    s.gold -= bt.cost.gold;
+
+    // 失败次数降低成功率
+    const failPenalty = s.breakthroughFailed * 0.05;
+    const rate = Math.max(0.1, bt.successRate - failPenalty);
+    const success = Math.random() < rate;
+
+    if (success) {
+      s.triggeredBreakthroughs.push(btId);
+      s.pendingBreakthrough = null;
+      s.breakthroughFailed = 0;
+      // 应用成功奖励
+      Object.entries(bt.successBonus).forEach(([k, v]) => {
+        s[k] = (s[k] || 0) + v;
+        if (k === 'maxHp') s.hp = Math.min(s.hp + v, s.maxHp);
+      });
+      if (bt.titleReward) {
+        if (!s.titles.includes(bt.titleReward)) s.titles.push(bt.titleReward);
+      }
+      this.addLog(`🌟 突破成功！你成功踏入【${bt.name}】境界！`, 'success');
+      this._checkTitles();
+      return { success: true, breakthrough: bt, result: 'success' };
+    } else {
+      s.breakthroughFailed++;
+      // 应用失败惩罚
+      Object.entries(bt.failPenalty).forEach(([k, v]) => {
+        s[k] = Math.max(1, (s[k] || 0) + v);
+      });
+      // 失败3次以上触发重伤
+      if (s.breakthroughFailed >= 3) {
+        this._applyInjury('突破走火入魔，经脉受损', 3);
+        s.pendingBreakthrough = null;
+        s.breakthroughFailed = 0;
+      }
+      this.addLog(`💥 突破失败！真气逆流，你受了内伤。（失败${s.breakthroughFailed}次）`, 'danger');
+      return { success: true, breakthrough: bt, result: 'fail' };
+    }
+  },
+
+  // 放弃突破
+  skipBreakthrough(btId) {
+    const s = this.state;
+    s.pendingBreakthrough = null;
+    this.addLog('你压制住了突破的冲动，继续积蓄力量。', 'normal');
+    return { success: true };
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  P: 江湖恩怨系统
+  // ══════════════════════════════════════════════════════════
+  addGrudge(npcId, name, reason, intensity = 1) {
+    const s = this.state;
+    const existing = s.grudges.find(g => g.npcId === npcId);
+    if (existing) {
+      existing.intensity = Math.min(3, existing.intensity + 1);
+      existing.reason = reason;
+    } else {
+      s.grudges.push({ npcId, name, reason, intensity, createdAt: s.year * 12 + s.month });
+    }
+    const intensityNames = ['', '小怨', '深仇', '不共戴天'];
+    this.addLog(`⚔️ 你与【${name}】结下了${intensityNames[intensity] || '仇怨'}：${reason}`, 'danger');
+  },
+
+  addDebt(npcId, name, reason, intensity = 1) {
+    const s = this.state;
+    const existing = s.debts.find(d => d.npcId === npcId);
+    if (existing) {
+      existing.intensity = Math.min(3, existing.intensity + 1);
+    } else {
+      s.debts.push({ npcId, name, reason, intensity, createdAt: s.year * 12 + s.month });
+    }
+    this.addLog(`🤝 你与【${name}】结下了恩情：${reason}`, 'success');
+  },
+
+  resolveGrudge(npcId) {
+    const s = this.state;
+    const idx = s.grudges.findIndex(g => g.npcId === npcId);
+    if (idx === -1) return { success: false, msg: '没有与此人的仇怨' };
+    const grudge = s.grudges[idx];
+    s.grudges.splice(idx, 1);
+    // 化解仇怨获得声望
+    const repGain = grudge.intensity * 15;
+    s.reputation += repGain;
+    s.morality += grudge.intensity * 5;
+    this.addLog(`✅ 你化解了与【${grudge.name}】的仇怨，声望+${repGain}。`, 'success');
+    return { success: true, grudge };
+  },
+
+  // 仇人随机出现复仇（在 fight 中调用）
+  _checkGrudgeEncounter() {
+    const s = this.state;
+    if (s.grudges.length === 0) return null;
+    // 仇怨越深，出现概率越高
+    const totalWeight = s.grudges.reduce((a, g) => a + g.intensity * 5, 0);
+    if (Math.random() * 100 > totalWeight) return null;
+    // 随机选一个仇人
+    const grudge = s.grudges[Math.floor(Math.random() * s.grudges.length)];
+    return grudge;
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  Q2: 行动连击系统
+  // ══════════════════════════════════════════════════════════
+  _updateCombo(actionType) {
+    const s = this.state;
+    // 连击类型分组：同组才能连击
+    const comboGroups = {
+      train: 'practice', inner: 'practice',
+      wander: 'explore', explore: 'explore',
+      work: 'earn', trade: 'earn',
+      fight: 'combat', duel: 'combat',
+      rest: 'rest',
+    };
+    const group = comboGroups[actionType] || actionType;
+    const lastGroup = comboGroups[s.lastActionType] || s.lastActionType;
+
+    if (group === lastGroup && s.lastActionType !== null) {
+      s.comboCount = Math.min(5, s.comboCount + 1);
+    } else {
+      s.comboCount = 1;
+    }
+    s.lastActionType = actionType;
+    // 连击加成：每层+8%，最高+40%
+    s.comboBonus = (s.comboCount - 1) * 8;
+
+    if (s.comboCount >= 2) {
+      const comboNames = ['', '', '二连击', '三连击', '四连击', '五连击'];
+      this.addLog(`🔥 ${comboNames[s.comboCount] || s.comboCount + '连击'}！行动效果+${s.comboBonus}%`, 'success');
+    }
+    return s.comboBonus;
+  },
+
+  getComboMultiplier() {
+    return 1 + (this.state.comboBonus || 0) / 100;
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  R: 死亡与重伤系统
+  // ══════════════════════════════════════════════════════════
+  _applyInjury(desc, months = 2) {
+    const s = this.state;
+    s.isInjured = true;
+    s.injuredMonthsLeft = Math.max(s.injuredMonthsLeft, months);
+    s.injuryDesc = desc;
+    this.addLog(`🩸 重伤：${desc}，需要 ${months} 个月休养。`, 'danger');
+  },
+
+  _tickInjury() {
+    const s = this.state;
+    if (!s.isInjured) return;
+    s.injuredMonthsLeft--;
+    if (s.injuredMonthsLeft <= 0) {
+      s.isInjured = false;
+      s.injuredMonthsLeft = 0;
+      s.injuryDesc = '';
+      this.addLog('🌿 你的伤势已经痊愈，可以重新出发了。', 'success');
+    }
+  },
+
+  // 检查是否濒死（hp <= 0 时调用）
+  _checkNearDeath() {
+    const s = this.state;
+    s.deathCount++;
+    s.nearDeathExp++;
+    // 鬼门关走过，获得一些感悟
+    const bonuses = [
+      { key: 'perception', val: 3 + Math.floor(Math.random() * 5) },
+      { key: 'endurance', val: 2 + Math.floor(Math.random() * 3) },
+    ];
+    bonuses.forEach(b => { s[b.key] = (s[b.key] || 0) + b.val; });
+    // 重伤3个月
+    this._applyInjury('鬼门关走了一遭，元气大伤', 3);
+    // 恢复到10%血量
+    s.hp = Math.max(1, Math.floor(s.maxHp * 0.1));
+    // 损失一些金钱（治疗费）
+    const healCost = Math.min(s.gold, 30 + Math.floor(Math.random() * 50));
+    s.gold -= healCost;
+    this.addLog(`💀 你在鬼门关走了一遭！幸得好心人相救，花费 ${healCost} 两治疗。悟性+${bonuses[0].val}，体魄+${bonuses[1].val}。`, 'danger');
+    return { nearDeath: true, bonuses, healCost };
+  },
+
+  // 重伤时行动效果减半
+  getInjuryPenalty() {
+    return this.state.isInjured ? 0.5 : 1.0;
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  S: 富事件（多段对话）系统
+  // ══════════════════════════════════════════════════════════
+  _triggerRichEvent() {
+    const s = this.state;
+    const available = DATA.RICH_EVENTS.filter(e => {
+      if (s.completedRichEvents.includes(e.id)) return false;
+      if (e.trigger && e.trigger.minReputation && s.reputation < e.trigger.minReputation) return false;
+      return true;
+    });
+    if (available.length === 0) return;
+    const totalWeight = available.reduce((a, b) => a + (b.weight || 10), 0);
+    let r = Math.random() * totalWeight;
+    let chosen = available[0];
+    for (const ev of available) {
+      r -= (ev.weight || 10);
+      if (r <= 0) { chosen = ev; break; }
+    }
+    s.pendingRichEvent = { eventId: chosen.id, stepId: 's1' };
+    this.addLog(`📖 江湖奇遇：【${chosen.name}】`, 'story');
+  },
+
+  // 获取当前富事件的步骤数据
+  getRichEventStep() {
+    const s = this.state;
+    if (!s.pendingRichEvent) return null;
+    const ev = DATA.RICH_EVENTS.find(e => e.id === s.pendingRichEvent.eventId);
+    if (!ev) return null;
+    const step = ev.steps.find(st => st.id === s.pendingRichEvent.stepId);
+    return { event: ev, step };
+  },
+
+  // 处理富事件选择
+  handleRichEventChoice(choiceIdx) {
+    const s = this.state;
+    if (!s.pendingRichEvent) return { success: false, msg: '没有进行中的奇遇' };
+    const ev = DATA.RICH_EVENTS.find(e => e.id === s.pendingRichEvent.eventId);
+    if (!ev) return { success: false, msg: '奇遇数据不存在' };
+    const step = ev.steps.find(st => st.id === s.pendingRichEvent.stepId);
+    if (!step) return { success: false, msg: '步骤不存在' };
+    const choice = step.choices[choiceIdx];
+    if (!choice) return { success: false, msg: '无效选择' };
+
+    // 检查前置条件
+    if (choice.require) {
+      for (const [k, v] of Object.entries(choice.require)) {
+        if ((s[k] || 0) < v) {
+          return { success: false, msg: `此选项需要${this._statName(k)}达到${v}，当前为${s[k]||0}` };
+        }
+      }
+    }
+
+    // 应用即时效果
+    const eff = choice.effect || {};
+    const statKeys = ['hp','innerPower','strength','agility','swordSkill','endurance',
+                      'perception','charm','gold','reputation','morality','evil','luck','speed'];
+    for (const k of statKeys) {
+      if (eff[k] !== undefined) {
+        s[k] = Math.max(0, (s[k] || 0) + eff[k]);
+      }
+    }
+    // 给予物品
+    if (choice.item) {
+      s.inventory[choice.item] = (s.inventory[choice.item] || 0) + 1;
+    }
+
+    // 判断是否结束
+    if (choice.next === null || choice.next === undefined) {
+      // 事件结束
+      s.completedRichEvents.push(ev.id);
+      s.pendingRichEvent = null;
+      if (choice.endMsg) this.addLog(choice.endMsg, 'story');
+      this._checkTitles();
+      return { success: true, ended: true, endMsg: choice.endMsg, effect: eff };
+    } else {
+      // 进入下一步
+      s.pendingRichEvent.stepId = choice.next;
+      return { success: true, ended: false, nextStepId: choice.next };
+    }
   },
 
   // ── 保存/读取 ─────────────────────────────────────────────

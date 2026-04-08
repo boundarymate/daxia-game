@@ -2136,4 +2136,214 @@ ERA_EVENTS: [
   },
 ],
 
+// ═══════════════════════════════════════════════════════════
+//  K: 天气系统
+//  每月随机天气，影响行动效果
+// ═══════════════════════════════════════════════════════════
+WEATHER_TYPES: [
+  { id:'sunny',  name:'晴空万里', icon:'☀️', weight:30,
+    effects:{ trainBonus:10, exploreBonus:15, wanderBonus:5 },
+    desc:'阳光明媚，正是修炼的好时机。' },
+  { id:'cloudy', name:'阴云密布', icon:'☁️', weight:20,
+    effects:{},
+    desc:'天色阴沉，江湖中人各自忙碌。' },
+  { id:'rain',   name:'细雨绵绵', icon:'🌧️', weight:20,
+    effects:{ innerBonus:20, trainBonus:5, wanderPenalty:10 },
+    desc:'雨声淅沥，最宜修炼内功，游历却不便。' },
+  { id:'storm',  name:'狂风暴雨', icon:'⛈️', weight:8,
+    effects:{ wanderPenalty:30, explorePenalty:20, restBonus:15 },
+    desc:'风雨大作，出行艰难，不如在屋内休养。' },
+  { id:'snow',   name:'大雪纷飞', icon:'❄️', weight:10,
+    effects:{ innerBonus:15, wanderPenalty:20, restBonus:10 },
+    desc:'白雪皑皑，内功修炼别有一番意境。' },
+  { id:'fog',    name:'大雾弥漫', icon:'🌫️', weight:8,
+    effects:{ stealthBonus:30, exploreBonus:10, wanderPenalty:5 },
+    desc:'浓雾遮天，行踪难觅，探索奇遇更多。' },
+  { id:'wind',   name:'劲风呼啸', icon:'💨', weight:12,
+    effects:{ agilityBonus:15, trainBonus:5 },
+    desc:'劲风中练功，身法更加灵动。' },
+  { id:'hot',    name:'烈日炎炎', icon:'🌞', weight:10,
+    effects:{ energyPenalty:10, trainBonus:-5, restBonus:5 },
+    desc:'酷暑难耐，体力消耗更快，不宜剧烈修炼。' },
+],
+
+// ═══════════════════════════════════════════════════════════
+//  L: 修炼境界突破
+//  内力/剑术等达到阈值时触发突破事件
+// ═══════════════════════════════════════════════════════════
+BREAKTHROUGH_EVENTS: [
+  { id:'bt_inner_1', stat:'innerPower', threshold:50,  name:'后天圆满',
+    desc:'你感到体内真气涌动，似乎即将突破后天境界的桎梏，踏入先天之门。',
+    cost:{ energy:50, gold:0 },
+    successBonus:{ innerPower:30, maxHp:20, endurance:10 },
+    failPenalty:{ innerPower:-10, hp:-20 },
+    successRate:0.7, titleReward:'t_xiantian' },
+  { id:'bt_inner_2', stat:'innerPower', threshold:120, name:'先天大成',
+    desc:'先天真气已臻大成，你感到一道无形的壁垒横亘在前，突破后将踏入化劲境界。',
+    cost:{ energy:70, gold:100 },
+    successBonus:{ innerPower:50, maxHp:30, endurance:20, perception:15 },
+    failPenalty:{ innerPower:-20, hp:-30 },
+    successRate:0.55 },
+  { id:'bt_inner_3', stat:'innerPower', threshold:250, name:'化劲入虚',
+    desc:'化劲之境已至顶峰，虚空之境就在眼前，此乃武学至高境界，万中无一能达到。',
+    cost:{ energy:100, gold:300 },
+    successBonus:{ innerPower:100, maxHp:50, endurance:30, perception:30, swordSkill:30 },
+    failPenalty:{ innerPower:-30, hp:-50 },
+    successRate:0.35 },
+  { id:'bt_sword_1', stat:'swordSkill', threshold:60,  name:'剑意初成',
+    desc:'你的剑法已有了自己的意境，剑意初成，再进一步便可达到人剑合一之境。',
+    cost:{ energy:40, gold:0 },
+    successBonus:{ swordSkill:25, agility:10, perception:8 },
+    failPenalty:{ swordSkill:-8, hp:-15 },
+    successRate:0.65 },
+  { id:'bt_sword_2', stat:'swordSkill', threshold:150, name:'人剑合一',
+    desc:'剑意已深入骨髓，人剑合一之境触手可及，突破后剑法将达到出神入化的境界。',
+    cost:{ energy:80, gold:200 },
+    successBonus:{ swordSkill:60, agility:20, perception:20, innerPower:20 },
+    failPenalty:{ swordSkill:-20, hp:-30 },
+    successRate:0.45 },
+],
+
+// ═══════════════════════════════════════════════════════════
+//  M2: 升级版随机事件（多段对话，选择影响后续）
+// ═══════════════════════════════════════════════════════════
+RICH_EVENTS: [
+  {
+    id:'re_mysterious_elder',
+    name:'神秘老人',
+    icon:'🧙',
+    weight:15,
+    trigger:{ minReputation:0 },
+    steps:[
+      { id:'s1', desc:'你在山间小道上遇到一位白发苍苍的老人，他正坐在路边休息，见你走来，眼中闪过一丝异光。\n\n"年轻人，你走的这条路，是去哪里的？"',
+        choices:[
+          { text:'"我在游历江湖，随遇而安。"', next:'s2a', effect:{} },
+          { text:'"老人家，你是何人？"', next:'s2b', effect:{} },
+          { text:'"不劳老人家费心。"（无礼离开）', next:null, effect:{ morality:-5 }, endMsg:'老人摇摇头，叹了口气，你错过了一段奇缘。' },
+        ]
+      },
+      { id:'s2a', desc:'老人点点头，眼中露出赞许之色："游历江湖，好！年轻人就该多走走看看。老夫年轻时也是如此。"\n\n他从怀中取出一个小瓷瓶："这是老夫自制的培元丹，送给你，愿你江湖路上平安。"',
+        choices:[
+          { text:'恭敬接受，道谢离去', next:null, effect:{ innerPower:15, perception:8 }, endMsg:'老人微笑着目送你离去，你感到内力有所增长。', item:'i_peiyuan' },
+          { text:'"老人家，可否指点晚辈一二？"', next:'s3', effect:{} },
+        ]
+      },
+      { id:'s2b', desc:'老人哈哈一笑："老夫不过是一个游方道人，无名无姓。倒是你，身上有一股不凡的气息。"\n\n他打量着你，若有所思："你可曾遇到过什么奇遇？"',
+        choices:[
+          { text:'如实相告', next:'s3', effect:{ charm:5 } },
+          { text:'"没什么特别的。"', next:null, effect:{}, endMsg:'老人点点头，起身离去，留下一句"缘分未到"。' },
+        ]
+      },
+      { id:'s3', desc:'老人沉吟片刻，说道："你的根骨不错，只是修炼方向有些偏差。"\n\n他伸出手指，在你眉心轻轻一点，你顿时感到一股暖流涌遍全身，脑中武学感悟如潮水般涌来。\n\n"记住，武学之道，在于心，不在于力。"',
+        choices:[
+          { text:'用心感悟（悟性≥20）', next:null, require:{ perception:20 }, effect:{ innerPower:30, perception:20, swordSkill:15 }, endMsg:'你用心感悟老人的指点，武学境界大进！' },
+          { text:'强行吸收', next:null, effect:{ innerPower:20, hp:-15 }, endMsg:'你强行吸收这股力量，有所收获，但也受了些内伤。' },
+        ]
+      },
+    ]
+  },
+  {
+    id:'re_bandit_camp',
+    name:'山贼营地',
+    icon:'⚔️',
+    weight:20,
+    trigger:{ minReputation:0 },
+    steps:[
+      { id:'s1', desc:'你发现了一处山贼营地，约有十余名山贼，他们正在欺压几名被俘的商人。\n\n山贼头目见你靠近，大喝一声："哪里来的小子，找死吗？"',
+        choices:[
+          { text:'拔剑迎战，救出商人', next:'s2a', effect:{ hp:-10 } },
+          { text:'"我是来入伙的。"（诈降）', next:'s2b', effect:{} },
+          { text:'悄悄绕道离开', next:null, effect:{}, endMsg:'你悄悄离开，商人的哭声渐渐远去，你心中有些不安。' },
+        ]
+      },
+      { id:'s2a', desc:'你与山贼大战一场，凭借武艺将其击退，山贼头目见势不妙，仓皇逃窜。\n\n被救的商人感激涕零，其中一人说："恩人大义，我等无以为报，这些银两请收下。"',
+        choices:[
+          { text:'收下银两', next:null, effect:{ gold:80, reputation:20, morality:10 }, endMsg:'商人千恩万谢，你收下了报酬，声望大增。' },
+          { text:'分文不取，仗义相助', next:null, effect:{ reputation:35, morality:25 }, endMsg:'你婉拒了报酬，商人们对你敬佩不已，你的侠名传遍附近。' },
+        ]
+      },
+      { id:'s2b', desc:'山贼头目打量你一番，哈哈大笑："好，有胆色！先把你的银两交出来，算是投名状！"\n\n你心中盘算着如何脱身……',
+        choices:[
+          { text:'趁其不备，突然出手（需身法≥20）', next:null, require:{ agility:20 }, effect:{ gold:50, reputation:15, agility:5 }, endMsg:'你出其不意，将山贼头目制服，救出商人，还缴获了一些财物。' },
+          { text:'乖乖交出银两，伺机逃跑', next:null, effect:{ gold:-30, agility:3 }, endMsg:'你交出银两，趁乱逃脱，损失了一些钱财。' },
+        ]
+      },
+    ]
+  },
+  {
+    id:'re_ancient_tomb',
+    name:'古墓奇遇',
+    icon:'🏛️',
+    weight:10,
+    trigger:{ minReputation:10 },
+    steps:[
+      { id:'s1', desc:'你在山中迷路，无意间发现了一处隐秘的古墓入口，石门上刻着"入者自负"四个大字。\n\n墓中隐约传来一股奇异的气息，似乎有什么东西在召唤你。',
+        choices:[
+          { text:'推门而入，探索古墓', next:'s2', effect:{} },
+          { text:'谨慎观察后再进入', next:'s2', effect:{ perception:3 } },
+          { text:'不入虎穴，转身离去', next:null, effect:{}, endMsg:'你转身离去，但心中始终对那古墓念念不忘。' },
+        ]
+      },
+      { id:'s2', desc:'古墓内机关重重，你小心翼翼地前行，终于来到一处宽阔的石室。\n\n石室中央有一具石棺，棺盖上放着一本泛黄的古籍，旁边还有一柄生锈的长剑。',
+        choices:[
+          { text:'取走古籍研读', next:'s3a', effect:{} },
+          { text:'取走长剑', next:'s3b', effect:{} },
+          { text:'两样都要', next:'s3c', effect:{ morality:-5 } },
+        ]
+      },
+      { id:'s3a', desc:'你翻开古籍，发现这是一本残缺的内功心法，虽然残缺，但其中蕴含的武学道理极为深奥。\n\n你花了数日时间研读，有所领悟。',
+        choices:[
+          { text:'深入钻研（需悟性≥25）', next:null, require:{ perception:25 }, effect:{ innerPower:40, perception:15 }, endMsg:'你深入钻研，领悟了古籍中的精髓，内力大进！' },
+          { text:'浅尝辄止', next:null, effect:{ innerPower:20, perception:8 }, endMsg:'你有所领悟，内力有所提升。' },
+        ]
+      },
+      { id:'s3b', desc:'你拿起长剑，虽然生锈，但剑身沉重，隐隐有一股凛冽的剑气。\n\n你试着挥舞几下，感觉这把剑与你颇为投缘。',
+        choices:[
+          { text:'带走此剑，日后修复', next:null, effect:{ swordSkill:20, strength:8 }, endMsg:'你带走了古剑，剑法有所精进。' },
+        ]
+      },
+      { id:'s3c', desc:'你将古籍和长剑都收入囊中，正要离去，却触动了机关，石室开始震动！\n\n你必须立刻逃出去！',
+        choices:[
+          { text:'施展轻功，全力逃跑（需身法≥15）', next:null, require:{ agility:15 }, effect:{ innerPower:25, swordSkill:15, agility:5 }, endMsg:'你施展轻功，惊险逃出，带走了两样宝贝！' },
+          { text:'丢下一样，轻装逃跑', next:null, effect:{ innerPower:20, hp:-20 }, endMsg:'你丢下长剑，带着古籍逃出，受了些伤。' },
+        ]
+      },
+    ]
+  },
+  {
+    id:'re_jianghu_conflict',
+    name:'门派纷争',
+    icon:'⚖️',
+    weight:18,
+    trigger:{ minReputation:15 },
+    steps:[
+      { id:'s1', desc:'你目睹了一场门派冲突：一名少林弟子与一名丐帮弟子正在激烈争吵，双方剑拔弩张，眼看就要动手。\n\n周围已经聚集了不少看热闹的人。',
+        choices:[
+          { text:'上前调停', next:'s2a', effect:{} },
+          { text:'站在少林一边', next:'s2b', effect:{ morality:3 } },
+          { text:'"打起来！打起来！"（看热闹）', next:'s2c', effect:{ morality:-5 } },
+        ]
+      },
+      { id:'s2a', desc:'你上前调停，双方见你气度不凡，暂时停手。\n\n少林弟子说："此人偷了我少林的东西！"\n丐帮弟子反驳："胡说！这是我丐帮祖传之物！"\n\n你仔细观察，发现真相似乎并不简单……',
+        choices:[
+          { text:'支持少林（需道德≥40）', next:null, require:{ morality:40 }, effect:{ reputation:20, morality:10 }, endMsg:'你凭借智慧化解了纷争，两派都对你心存感激，声望大增。' },
+          { text:'支持丐帮', next:null, effect:{ reputation:15, charm:8 }, endMsg:'你的调停让丐帮弟子感激，声望有所提升。' },
+          { text:'"此事另有隐情，需从长计议"', next:null, effect:{ reputation:25, perception:10 }, endMsg:'你的公正态度赢得了双方的尊重，声望大增，悟性也有所提升。' },
+        ]
+      },
+      { id:'s2b', desc:'你站在少林一边，丐帮弟子见寡不敌众，愤愤离去，临走时撂下一句："此事没完！"\n\n少林弟子向你道谢。',
+        choices:[
+          { text:'接受少林的谢礼', next:null, effect:{ gold:30, reputation:10 }, endMsg:'少林弟子赠你银两，但丐帮对你的印象变差了。' },
+        ]
+      },
+      { id:'s2c', desc:'两人打了起来，场面混乱，你趁乱……',
+        choices:[
+          { text:'趁乱摸走一些财物', next:null, effect:{ gold:25, evil:15, morality:-15 }, endMsg:'你趁乱得了些好处，但心中有些不安。' },
+          { text:'良心发现，上前制止', next:null, effect:{ morality:5, reputation:5 }, endMsg:'你及时制止了打斗，挽回了一些颜面。' },
+        ]
+      },
+    ]
+  },
+],
+
 };

@@ -358,6 +358,75 @@ const UI = {
       this._shownChain = chainIds[0];
       setTimeout(() => this._checkPendingChains(), 800);
     }
+
+    // K: 天气显示
+    this._renderWeather();
+
+    // R: 重伤状态显示
+    this._renderInjuryStatus();
+
+    // L: 境界突破弹窗
+    if (s.pendingBreakthrough && s.pendingBreakthrough !== this._shownBreakthrough) {
+      this._shownBreakthrough = s.pendingBreakthrough;
+      const bt = (DATA.BREAKTHROUGH_EVENTS || []).find(b => b.id === s.pendingBreakthrough);
+      if (bt) setTimeout(() => this.showBreakthroughModal(bt), 900);
+    } else if (!s.pendingBreakthrough) {
+      this._shownBreakthrough = null;
+    }
+
+    // S: 富事件弹窗
+    if (s.pendingRichEvent && s.pendingRichEvent.eventId !== this._shownRichEvent) {
+      this._shownRichEvent = s.pendingRichEvent.eventId;
+      setTimeout(() => this.showRichEventModal(), 1000);
+    } else if (!s.pendingRichEvent) {
+      this._shownRichEvent = null;
+    }
+  },
+
+  // ── 天气显示 ─────────────────────────────────────────────
+  _renderWeather() {
+    const s = Engine.state;
+    let el = document.getElementById('weather-badge');
+    if (!el) {
+      // 在季节旁边插入天气徽章
+      const seasonEl = document.getElementById('top-season');
+      if (seasonEl && seasonEl.parentNode) {
+        el = document.createElement('span');
+        el.id = 'weather-badge';
+        el.style.cssText = 'font-size:11px;color:var(--blue-light);margin-left:6px;cursor:pointer;';
+        el.title = '当前天气';
+        seasonEl.parentNode.insertBefore(el, seasonEl.nextSibling);
+      }
+    }
+    if (el && Engine.getWeather) {
+      const w = Engine.getWeather();
+      el.textContent = `${w.icon}${w.name}`;
+      el.title = w.desc;
+    }
+  },
+
+  // ── 重伤状态显示 ─────────────────────────────────────────
+  _renderInjuryStatus() {
+    const s = Engine.state;
+    let el = document.getElementById('injury-badge');
+    if (!el) {
+      const topBar = document.getElementById('top-hp') ? document.getElementById('top-hp').parentNode : null;
+      if (topBar) {
+        el = document.createElement('span');
+        el.id = 'injury-badge';
+        el.style.cssText = 'font-size:11px;color:var(--red-light);margin-left:8px;font-weight:bold;';
+        topBar.appendChild(el);
+      }
+    }
+    if (el) {
+      if (s.isInjured) {
+        el.textContent = `🩸重伤(${s.injuredMonthsLeft}月)`;
+        el.style.display = 'inline';
+      } else {
+        el.textContent = '';
+        el.style.display = 'none';
+      }
+    }
   },
 
   renderStatBars() {
@@ -535,6 +604,7 @@ const UI = {
       case 'manuals':  this.renderManuals(); break;
       case 'fusion':   this.renderFusion(); break;
       case 'era':      this.renderEra(); break;
+      case 'grudge':   this.renderGrudgePanel(); break;
     }
   },
 
@@ -559,6 +629,28 @@ const UI = {
       const m = (DATA.MANUALS || []).find(x => x.id === s.studyingManual.id);
       const remaining = s.studyingManual.endMonth - (s.year * 12 + s.month);
       tips.push(`<span style="color:var(--blue-light);">📖 正在研读【${m?.name || '秘籍'}】，还需${remaining}月</span>`);
+    }
+    // K: 天气影响提示
+    if (Engine.getWeather) {
+      const w = Engine.getWeather();
+      const eff = w.effects || {};
+      const weatherTips = [];
+      if (eff.trainBonus) weatherTips.push(`修炼${eff.trainBonus > 0 ? '+' : ''}${eff.trainBonus}%`);
+      if (eff.innerBonus) weatherTips.push(`内功+${eff.innerBonus}%`);
+      if (eff.wanderPenalty) weatherTips.push(`游历-${eff.wanderPenalty}%`);
+      if (eff.restBonus) weatherTips.push(`休息+${eff.restBonus}%`);
+      if (weatherTips.length > 0) {
+        tips.push(`<span style="color:var(--blue-light);">${w.icon} ${w.name}：${weatherTips.join('，')}</span>`);
+      }
+    }
+    // R: 重伤状态提示
+    if (s.isInjured) {
+      tips.push(`<span style="color:var(--red-light);">🩸 重伤中（还需${s.injuredMonthsLeft}月）：${s.injuryDesc}。行动效果减半，建议休息。</span>`);
+    }
+    // Q2: 连击状态提示
+    if (s.comboCount >= 2) {
+      const comboNames = ['', '', '二连击', '三连击', '四连击', '五连击'];
+      tips.push(`<span style="color:var(--gold);">🔥 ${comboNames[s.comboCount] || s.comboCount + '连击'}！行动效果+${s.comboBonus}%</span>`);
     }
 
     const tipsHTML = tips.length > 0 ? `
@@ -2518,6 +2610,241 @@ const UI = {
     const modal = document.getElementById('era-event-modal');
     if (modal) modal.remove();
     this.handleEraChoice(eraId, choiceIndex);
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  L: 境界突破弹窗
+  // ══════════════════════════════════════════════════════════
+  showBreakthroughModal(bt) {
+    if (document.getElementById('breakthrough-modal')) return;
+    const s = Engine.state;
+    const failCount = s.breakthroughFailed || 0;
+    const rate = Math.max(10, Math.round((bt.successRate - failCount * 0.05) * 100));
+    const costStr = [];
+    if (bt.cost.energy > 0) costStr.push(`体力 ${bt.cost.energy}`);
+    if (bt.cost.gold > 0) costStr.push(`银两 ${bt.cost.gold}`);
+    const bonusStr = Object.entries(bt.successBonus).map(([k,v]) => `${Engine._statName(k)}+${v}`).join('，');
+    const penaltyStr = Object.entries(bt.failPenalty).map(([k,v]) => `${Engine._statName(k)}${v}`).join('，');
+
+    const html = `
+      <div class="modal-overlay" id="breakthrough-modal" style="display:flex;z-index:9995;">
+        <div class="modal-box" style="max-width:440px;border-color:var(--gold);">
+          <div style="text-align:center;margin-bottom:12px;">
+            <div style="font-size:28px;margin-bottom:6px;">⚡</div>
+            <div style="font-size:16px;color:var(--gold);font-weight:bold;">境界突破</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">【${bt.name}】</div>
+          </div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.8;margin-bottom:12px;padding:10px;background:rgba(255,255,255,0.02);border-left:2px solid var(--gold);border-radius:0 2px 2px 0;">
+            ${bt.desc}
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;font-size:11px;">
+            <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:2px;border:1px solid var(--border);">
+              <div style="color:var(--text-muted);margin-bottom:4px;">消耗</div>
+              <div style="color:var(--gold-light);">${costStr.join(' / ') || '无'}</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:2px;border:1px solid var(--border);">
+              <div style="color:var(--text-muted);margin-bottom:4px;">成功率</div>
+              <div style="color:${rate >= 60 ? 'var(--green-light)' : rate >= 40 ? 'var(--gold)' : 'var(--red-light)'};">${rate}%${failCount > 0 ? `（已失败${failCount}次）` : ''}</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:2px;border:1px solid var(--border);">
+              <div style="color:var(--text-muted);margin-bottom:4px;">成功奖励</div>
+              <div style="color:var(--green-light);">${bonusStr}</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03);padding:8px;border-radius:2px;border:1px solid var(--border);">
+              <div style="color:var(--text-muted);margin-bottom:4px;">失败惩罚</div>
+              <div style="color:var(--red-light);">${penaltyStr}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="UI.doBreakthrough('${bt.id}')" style="
+              flex:2;padding:10px;border:1px solid var(--gold);color:var(--gold-light);
+              background:rgba(255,200,0,0.05);border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
+              ⚡ 尝试突破
+            </button>
+            <button onclick="UI.skipBreakthrough('${bt.id}')" style="
+              flex:1;padding:10px;border:1px solid var(--border);color:var(--text-muted);
+              background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
+              暂不突破
+            </button>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  },
+
+  doBreakthrough(btId) {
+    const modal = document.getElementById('breakthrough-modal');
+    if (modal) modal.remove();
+    const result = Engine.attemptBreakthrough(btId);
+    if (!result.success) { this.toast(result.msg); return; }
+    const bt = result.breakthrough;
+    const isSuccess = result.result === 'success';
+    const html = `
+      <div class="modal-overlay" id="bt-result-modal" style="display:flex;z-index:9996;">
+        <div class="modal-box" style="max-width:380px;text-align:center;border-color:${isSuccess ? 'var(--gold)' : 'var(--red-light)'};">
+          <div style="font-size:36px;margin-bottom:8px;">${isSuccess ? '🌟' : '💥'}</div>
+          <div style="font-size:16px;color:${isSuccess ? 'var(--gold)' : 'var(--red-light)'};font-weight:bold;margin-bottom:8px;">
+            ${isSuccess ? '突破成功！' : '突破失败'}
+          </div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.8;margin-bottom:16px;">
+            ${isSuccess ? `你成功踏入【${bt.name}】境界，武学修为大进！` : `真气逆流，突破失败，你受了内伤。`}
+          </div>
+          <button onclick="document.getElementById('bt-result-modal').remove();UI.render();" style="
+            width:100%;padding:10px;border:1px solid var(--gold);color:var(--gold-light);
+            background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
+            知道了
+          </button>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    this.render();
+  },
+
+  skipBreakthrough(btId) {
+    const modal = document.getElementById('breakthrough-modal');
+    if (modal) modal.remove();
+    Engine.skipBreakthrough(btId);
+    this.render();
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  S: 富事件（多段对话）弹窗
+  // ══════════════════════════════════════════════════════════
+  showRichEventModal() {
+    const existing = document.getElementById('rich-event-modal');
+    if (existing) existing.remove();
+    const data = Engine.getRichEventStep();
+    if (!data) return;
+    const { event, step } = data;
+    if (!step) return;
+
+    const s = Engine.state;
+    const choicesHTML = step.choices.map((c, i) => {
+      // 检查前置条件
+      let disabled = false;
+      let disabledReason = '';
+      if (c.require) {
+        for (const [k, v] of Object.entries(c.require)) {
+          if ((s[k] || 0) < v) {
+            disabled = true;
+            disabledReason = `（需要${Engine._statName(k)}≥${v}，当前${s[k]||0}）`;
+            break;
+          }
+        }
+      }
+      return `
+        <button class="modal-choice-btn" ${disabled ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''}
+          onclick="UI.handleRichEventChoice(${i})">
+          ${c.text}${disabledReason ? `<span style="font-size:10px;color:var(--red-light);"> ${disabledReason}</span>` : ''}
+        </button>`;
+    }).join('');
+
+    const html = `
+      <div class="modal-overlay" id="rich-event-modal" style="display:flex;z-index:9994;">
+        <div class="modal-box" style="max-width:460px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+            <div style="font-size:24px;">${event.icon || '📖'}</div>
+            <div>
+              <div style="font-size:14px;color:var(--gold);">江湖奇遇</div>
+              <div style="font-size:11px;color:var(--text-muted);">【${event.name}】</div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.9;margin-bottom:14px;padding:10px;background:rgba(255,255,255,0.02);border-left:2px solid var(--border);border-radius:0 2px 2px 0;white-space:pre-line;">
+            ${step.desc}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${choicesHTML}
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  },
+
+  handleRichEventChoice(choiceIdx) {
+    const result = Engine.handleRichEventChoice(choiceIdx);
+    if (!result.success) { this.toast(result.msg); return; }
+
+    const modal = document.getElementById('rich-event-modal');
+    if (modal) modal.remove();
+
+    if (result.ended) {
+      // 显示结果
+      const eff = result.effect || {};
+      const statMap = {
+        hp:'气血', innerPower:'内力', strength:'力量', agility:'身法',
+        swordSkill:'剑术', endurance:'体魄', perception:'悟性',
+        charm:'魅力', gold:'银两', reputation:'声望', morality:'道德', evil:'邪气',
+      };
+      const changes = [];
+      for (const [k, label] of Object.entries(statMap)) {
+        if (eff[k] !== undefined && eff[k] !== 0) {
+          const color = eff[k] > 0 ? 'var(--green-light)' : 'var(--red-light)';
+          const sign = eff[k] > 0 ? '+' : '';
+          changes.push(`<span style="color:${color};">${label}${sign}${eff[k]}</span>`);
+        }
+      }
+      const html = `
+        <div class="modal-overlay" id="rich-event-result-modal" style="display:flex;z-index:9995;">
+          <div class="modal-box" style="max-width:380px;">
+            <div style="font-size:12px;color:var(--text-dim);line-height:1.8;margin-bottom:12px;">${result.endMsg || '奇遇结束。'}</div>
+            ${changes.length > 0 ? `
+              <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:2px;padding:8px;margin-bottom:12px;">
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">获得效果</div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;">${changes.join('')}</div>
+              </div>` : ''}
+            <button onclick="document.getElementById('rich-event-result-modal').remove();UI.render();" style="
+              width:100%;padding:10px;border:1px solid var(--gold);color:var(--gold-light);
+              background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
+              知道了
+            </button>
+          </div>
+        </div>`;
+      document.body.insertAdjacentHTML('beforeend', html);
+    } else {
+      // 进入下一步
+      this.render();
+      setTimeout(() => this.showRichEventModal(), 100);
+    }
+    this.render();
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  P: 恩怨面板（在人物信息标签页中显示）
+  // ══════════════════════════════════════════════════════════
+  renderGrudgePanel() {
+    const s = Engine.state;
+    const container = document.getElementById('grudge-panel');
+    if (!container) return;
+
+    const intensityNames = ['', '小怨', '深仇', '不共戴天'];
+    const intensityColors = ['', 'var(--text-muted)', 'var(--gold)', 'var(--red-light)'];
+
+    const grudgesHTML = s.grudges && s.grudges.length > 0 ? s.grudges.map(g => `
+      <div style="background:var(--bg-card);border:1px solid rgba(255,80,80,0.3);padding:8px;border-radius:2px;margin-bottom:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <span style="font-size:12px;color:var(--red-light);">⚔️ ${g.name}</span>
+            <span style="font-size:10px;color:${intensityColors[g.intensity]};margin-left:6px;border:1px solid ${intensityColors[g.intensity]};padding:0 4px;border-radius:8px;">${intensityNames[g.intensity]}</span>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">${g.reason}</div>
+      </div>`) .join('') : '<div style="font-size:11px;color:var(--text-muted);">无仇怨在身</div>';
+
+    const debtsHTML = s.debts && s.debts.length > 0 ? s.debts.map(d => `
+      <div style="background:var(--bg-card);border:1px solid rgba(80,200,80,0.3);padding:8px;border-radius:2px;margin-bottom:6px;">
+        <div style="font-size:12px;color:var(--green-light);">🤝 ${d.name}</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">${d.reason}</div>
+      </div>`) .join('') : '<div style="font-size:11px;color:var(--text-muted);">无恩情在身</div>';
+
+    container.innerHTML = `
+      <div style="margin-bottom:10px;">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">⚔️ 仇怨（${(s.grudges||[]).length}）</div>
+        ${grudgesHTML}
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">🤝 恩情（${(s.debts||[]).length}）</div>
+        ${debtsHTML}
+      </div>`;
   },
 
 };

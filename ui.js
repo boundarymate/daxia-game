@@ -8,6 +8,7 @@ const UI = {
   selectedBgs: {},         // 已选背景特质 { tag: id }，每类只能选一个
   selectedGender: 'male',
   currentTab: 'actions',
+  questSubTab: 'available',  // 'available' | 'active' | 'bounty'
   pendingEvent: null,
   traitCatFilter: '全部',  // 当前人物特质分类筛选
   bgCatFilter: '出身',     // 当前背景特质分类筛选
@@ -267,6 +268,20 @@ const UI = {
     document.getElementById('top-energy').textContent = s.energy;
     document.getElementById('top-time').textContent = `第${s.year}年${s.month}月 · 年龄${s.age}岁`;
 
+    // 称号显示
+    const titleEl = document.getElementById('top-title');
+    if (titleEl) {
+      if (s.activeTitle) {
+        const title = DATA.TITLES.find(t => t.id === s.activeTitle);
+        if (title) {
+          titleEl.textContent = `「${title.name}」`;
+          titleEl.style.display = 'inline';
+        }
+      } else {
+        titleEl.style.display = 'none';
+      }
+    }
+
     // 属性条
     this.renderStatBars();
 
@@ -439,9 +454,11 @@ const UI = {
       case 'actions': this.renderActions(); break;
       case 'map':     this.renderMap(); break;
       case 'martial': this.renderMartialLearn(); break;
-      case 'quests':  this.renderQuests(); break;
+      case 'quests':  this.renderQuestsTab(); break;
       case 'npcs':    this.renderNPCs(); break;
       case 'sects':   this.renderSects(); break;
+      case 'bag':     this.renderBag(); break;
+      case 'titles':  this.renderTitles(); break;
     }
   },
 
@@ -503,31 +520,64 @@ const UI = {
     }).join('');
   },
 
-  renderQuests() {
+  // ── 任务标签页（含子标签）────────────────────────────────
+  renderQuestsTab() {
+    const container = document.getElementById('quest-list');
+    const activeCount = Engine.getActiveQuests().length;
+    const bountyCount = Engine.getActiveBounties().length;
+    container.innerHTML = `
+      <div style="display:flex;gap:6px;margin-bottom:10px;">
+        <button class="cat-tab ${this.questSubTab==='available'?'active':''}" onclick="UI.setQuestSubTab('available')">可接任务</button>
+        <button class="cat-tab ${this.questSubTab==='active'?'active':''}" onclick="UI.setQuestSubTab('active')">进行中 <span class="cat-count">${activeCount||''}</span></button>
+        <button class="cat-tab ${this.questSubTab==='bounty'?'active':''}" onclick="UI.setQuestSubTab('bounty')">悬赏令 <span class="cat-count">${bountyCount||''}</span></button>
+      </div>
+      <div id="quest-sub-content"></div>
+    `;
+    this._renderQuestSubContent();
+  },
+
+  setQuestSubTab(tab) {
+    this.questSubTab = tab;
+    this.renderQuestsTab();
+  },
+
+  _renderQuestSubContent() {
+    const el = document.getElementById('quest-sub-content');
+    if (!el) return;
+    if (this.questSubTab === 'available') el.innerHTML = this._buildAvailableQuestsHTML();
+    else if (this.questSubTab === 'active') el.innerHTML = this._buildActiveQuestsHTML();
+    else el.innerHTML = this._buildBountiesHTML();
+  },
+
+  _buildAvailableQuestsHTML() {
     const quests = Engine.getAvailableQuests();
     const s = Engine.state;
-    document.getElementById('quest-list').innerHTML = quests.map(q => {
+    if (quests.length === 0) return '<div style="font-size:12px;color:var(--text-muted);padding:12px;">当前无可接任务</div>';
+    return quests.map(q => {
       const rewardStr = [
         q.reward.gold ? `银两+${q.reward.gold}` : '',
         q.reward.reputation ? `声望+${q.reward.reputation}` : '',
         q.reward.morality ? `道德+${q.reward.morality}` : '',
         q.reward.evil ? `邪气+${q.reward.evil}` : '',
+        q.reward.item ? `物品` : '',
       ].filter(Boolean).join('，');
       const costStr = [
         q.cost.time ? `${q.cost.time}个月` : '',
-        q.cost.gold ? `${q.cost.gold}两` : '',
         q.cost.energy ? `${q.cost.energy}体力` : '',
       ].filter(Boolean).join('，');
       const reqStr = Object.entries(q.require).map(([k,v])=>`${Engine._statName(k)}≥${v}`).join('，') || '无';
       const canDo = Object.entries(q.require).every(([k,v]) => (s[k]||0) >= v);
       const diffStr = '⚔️'.repeat(q.difficulty);
       const typeColor = { normal:'var(--blue)', combat:'var(--red)', stealth:'var(--purple)', explore:'var(--green)', evil:'var(--red-light)' };
+      const chainBadge = q.chain ? '<span style="font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(255,200,0,0.15);color:var(--gold);">任务链</span>' : '';
+      const timeBadge = q.timeLimit ? `<span style="font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(255,80,80,0.15);color:var(--red-light);">限时${q.timeLimit}月</span>` : '';
       return `
         <div class="quest-card">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
             <span class="quest-name">${q.name}</span>
-            <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(255,255,255,0.05);color:${typeColor[q.type]||'var(--text-dim)'};">${q.type}</span>
+            <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(255,255,255,0.05);color:${typeColor[q.type]||'var(--text-dim)'}">${q.type}</span>
             <span style="font-size:11px;color:var(--text-muted);">${diffStr}</span>
+            ${chainBadge}${timeBadge}
           </div>
           <div class="quest-desc">${q.desc}</div>
           <div class="quest-meta">
@@ -535,11 +585,71 @@ const UI = {
             <span class="quest-cost">消耗：${costStr}</span>
             <span>要求：${reqStr}</span>
           </div>
-          <button class="quest-btn" ${canDo?'':' disabled style="opacity:0.4;cursor:not-allowed;"'} onclick="UI.doQuest('${q.id}')">
-            ${canDo ? '接受任务' : '条件不足'}
+          <div style="display:flex;gap:6px;margin-top:6px;">
+            <button class="quest-btn" style="flex:1;" ${canDo?'':' disabled style="opacity:0.4;cursor:not-allowed;"'} onclick="UI.acceptQuest('${q.id}')">
+              ${canDo ? '接取任务' : '条件不足'}
+            </button>
+            <button class="quest-btn" style="flex:1;background:rgba(255,200,0,0.1);border-color:var(--gold);" ${canDo?'':' disabled style="opacity:0.4;cursor:not-allowed;"'} onclick="UI.doQuest('${q.id}')">
+              ${canDo ? '立即执行' : '条件不足'}
+            </button>
+          </div>
+        </div>`;
+    }).join('');
+  },
+
+  _buildActiveQuestsHTML() {
+    const quests = Engine.getActiveQuests();
+    if (quests.length === 0) return '<div style="font-size:12px;color:var(--text-muted);padding:12px;">暂无进行中的任务</div>';
+    return quests.map(q => {
+      const remainStr = q.remaining !== null
+        ? (q.remaining <= 0 ? '<span style="color:var(--red-light);">⚠️ 即将超时！</span>' : `剩余 ${q.remaining} 个月`)
+        : '无时限';
+      const rewardStr = [
+        q.reward.gold ? `银两+${q.reward.gold}` : '',
+        q.reward.reputation ? `声望+${q.reward.reputation}` : '',
+      ].filter(Boolean).join('，');
+      const s = Engine.state;
+      const canDo = Object.entries(q.require).every(([k,v]) => (s[k]||0) >= v);
+      return `
+        <div class="quest-card" style="border-color:var(--gold);">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+            <span class="quest-name">▶ ${q.name}</span>
+            <span style="font-size:10px;color:var(--text-muted);margin-left:auto;">${remainStr}</span>
+          </div>
+          <div class="quest-desc">${q.desc}</div>
+          <div class="quest-meta"><span class="quest-reward">奖励：${rewardStr||'无'}</span></div>
+          <button class="quest-btn" style="margin-top:6px;width:100%;" ${canDo?'':' disabled style="opacity:0.4;"'} onclick="UI.doQuest('${q.id}')">
+            执行任务
           </button>
         </div>`;
-    }).join('') || '<div style="font-size:12px;color:var(--text-muted);padding:12px;">当前无可用任务</div>';
+    }).join('');
+  },
+
+  _buildBountiesHTML() {
+    const bounties = Engine.getActiveBounties();
+    const s = Engine.state;
+    if (bounties.length === 0) return '<div style="font-size:12px;color:var(--text-muted);padding:12px;">当前无悬赏令，每3个月刷新一次</div>';
+    return bounties.map((b, idx) => {
+      const diffStr = '⚔️'.repeat(b.difficulty);
+      const canDo = Object.entries(b.require || {}).every(([k,v]) => (s[k]||0) >= v);
+      const typeColor = { normal:'var(--blue)', combat:'var(--red)', stealth:'var(--purple)', explore:'var(--green)' };
+      return `
+        <div class="quest-card" style="border-color:var(--purple);">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+            <span class="quest-name">📋 ${b.name}</span>
+            <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(255,255,255,0.05);color:${typeColor[b.type]||'var(--text-dim)'}">${b.type}</span>
+            <span style="font-size:11px;color:var(--text-muted);">${diffStr}</span>
+          </div>
+          <div class="quest-desc">${b.desc}</div>
+          <div class="quest-meta">
+            <span class="quest-reward">赏金：约${b.reward.gold}两</span>
+            <span class="quest-cost">消耗：${b.cost.time||1}个月 ${b.cost.energy||0}体力</span>
+          </div>
+          <button class="quest-btn" style="margin-top:6px;width:100%;border-color:var(--purple);" ${canDo?'':' disabled style="opacity:0.4;"'} onclick="UI.doBounty(${idx})">
+            ${canDo ? '接受悬赏' : '条件不足'}
+          </button>
+        </div>`;
+    }).join('');
   },
 
   renderNPCs() {
@@ -548,6 +658,7 @@ const UI = {
     const alignMap = { good:'正道', evil:'邪道', neutral:'中立' };
     document.getElementById('npc-list').innerHTML = npcs.map(npc => {
       const favor = s.npcFavor[npc.id] || 0;
+      const displayFavor = npc.displayFavor !== undefined ? npc.displayFavor : favor;
       const avatarEmoji = npc.align === 'good' ? '🧙' : npc.align === 'evil' ? '😈' : '🧑';
       return `
         <div class="npc-card">
@@ -560,12 +671,12 @@ const UI = {
             </div>
             <div style="margin-left:auto;text-align:right;">
               <div style="font-size:10px;color:var(--text-muted);">好感度</div>
-              <div style="font-size:16px;color:var(--gold-light);">${favor}</div>
+              <div style="font-size:16px;color:var(--gold-light);">${displayFavor}</div>
             </div>
           </div>
           <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px;">${npc.desc}</div>
           <div class="npc-favor-bar">
-            <div class="npc-favor-fill" style="width:${favor}%"></div>
+            <div class="npc-favor-fill" style="width:${displayFavor}%"></div>
           </div>
           <div class="npc-actions">
             <button class="npc-action-btn" onclick="UI.talkToNPC('${npc.id}')">交谈 (+好感)</button>
@@ -622,7 +733,7 @@ const UI = {
   switchTab(tab) {
     this.currentTab = tab;
     document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-      const tabs = ['actions','map','martial','quests','npcs','sects'];
+      const tabs = ['actions','map','martial','quests','npcs','sects','bag','titles'];
       btn.classList.toggle('active', tabs[i] === tab);
     });
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -718,9 +829,27 @@ const UI = {
     this.render();
   },
 
+  acceptQuest(questId) {
+    const result = Engine.acceptQuest(questId);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.toast(`接取了任务【${result.quest.name}】！`);
+    this.render();
+  },
+
   doQuest(questId) {
     const result = Engine.doQuest(questId);
     if (!result.success) { this.toast(result.msg); return; }
+    if (result.chainQuest) {
+      const next = DATA.QUESTS.find(q => q.id === result.chainQuest);
+      if (next) setTimeout(() => this.toast(`新任务解锁：【${next.name}】`), 800);
+    }
+    this.render();
+  },
+
+  doBounty(idx) {
+    const result = Engine.doBounty(idx);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.toast(`悬赏令完成！获得 ${result.reward.gold} 两！`);
     this.render();
   },
 
@@ -831,6 +960,155 @@ const UI = {
     document.getElementById('ending-name').textContent = ending.name;
     document.getElementById('ending-desc').textContent = ending.desc;
     document.getElementById('ending-screen').style.display = 'flex';
+  },
+
+  // ── 背包面板 ─────────────────────────────────────────────
+  renderBag() {
+    const s = Engine.state;
+    const container = document.getElementById('bag-panel');
+    if (!container) return;
+
+    const shopItems = Engine.getShopItems();
+    const inventoryItems = Object.entries(s.inventory)
+      .map(([id, count]) => ({ item: DATA.ITEMS.find(i => i.id === id), count }))
+      .filter(x => x.item);
+
+    let html = `<div style="margin-bottom:12px;">`;
+    html += `<div style="font-size:12px;color:var(--gold);margin-bottom:8px;">🎒 背包（${inventoryItems.length}种物品）</div>`;
+    if (inventoryItems.length === 0) {
+      html += '<div style="font-size:11px;color:var(--text-muted);">背包空空如也</div>';
+    } else {
+      html += inventoryItems.map(({ item, count }) => {
+        const canUse = item.effect && Object.keys(item.effect).length > 0 && item.type !== 'material';
+        return `
+          <div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:2px;margin-bottom:4px;">
+            <span style="font-size:18px;">${item.icon}</span>
+            <div style="flex:1;">
+              <div style="font-size:12px;color:var(--gold-light);">${item.name} <span style="color:var(--text-muted);">x${count}</span></div>
+              <div style="font-size:10px;color:var(--text-dim);">${item.desc}</div>
+            </div>
+            <div style="display:flex;gap:4px;">
+              ${canUse ? `<button style="padding:3px 8px;font-size:10px;border:1px solid var(--green);color:var(--green-light);background:none;border-radius:2px;cursor:pointer;font-family:inherit;" onclick="UI.useItem('${item.id}')">使用</button>` : ''}
+              <button style="padding:3px 8px;font-size:10px;border:1px solid var(--text-muted);color:var(--text-muted);background:none;border-radius:2px;cursor:pointer;font-family:inherit;" onclick="UI.sellItem('${item.id}')">出售(${item.sellPrice}两)</button>
+            </div>
+          </div>`;
+      }).join('');
+    }
+    html += `</div>`;
+
+    // 商店区域
+    html += `<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">`;
+    html += `<div style="font-size:12px;color:var(--gold);margin-bottom:8px;">🏪 当地商店 <span style="font-size:10px;color:var(--text-muted);">（持有：${s.gold}两）</span></div>`;
+    if (shopItems.length === 0) {
+      html += '<div style="font-size:11px;color:var(--text-muted);">此地无商店</div>';
+    } else {
+      html += shopItems.map(item => {
+        const titleBonus = Engine._getTitleBonus();
+        const discount = (titleBonus.itemDiscountMod || 0) / 100;
+        const price = Math.floor(item.buyPrice * (1 - discount));
+        const canBuy = s.gold >= price;
+        const discountStr = discount > 0 ? `<span style="color:var(--green-light);font-size:9px;"> (${Math.round(discount*100)}%折扣)</span>` : '';
+        return `
+          <div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:2px;margin-bottom:4px;">
+            <span style="font-size:18px;">${item.icon}</span>
+            <div style="flex:1;">
+              <div style="font-size:12px;color:var(--gold-light);">${item.name}</div>
+              <div style="font-size:10px;color:var(--text-dim);">${item.desc}</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:12px;color:var(--gold);">${price}两${discountStr}</div>
+              <button style="margin-top:2px;padding:3px 8px;font-size:10px;border:1px solid var(--gold);color:var(--gold-light);background:none;border-radius:2px;cursor:pointer;font-family:inherit;${canBuy?'':'opacity:0.4;cursor:not-allowed;'}" ${canBuy?'':'disabled'} onclick="UI.buyItem('${item.id}')">购买</button>
+            </div>
+          </div>`;
+      }).join('');
+    }
+    html += `</div>`;
+
+    container.innerHTML = html;
+  },
+
+  useItem(itemId) {
+    const result = Engine.useItem(itemId);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.toast(`使用了${result.item.name}！`);
+    this.render();
+  },
+
+  sellItem(itemId) {
+    const result = Engine.sellItem(itemId, 1);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.render();
+  },
+
+  buyItem(itemId) {
+    const result = Engine.buyItem(itemId, 1);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.render();
+  },
+
+  // ── 称号面板 ─────────────────────────────────────────────
+  renderTitles() {
+    const s = Engine.state;
+    const container = document.getElementById('titles-panel');
+    if (!container) return;
+
+    const myTitles = Engine.getTitles();
+    const tierColor = ['', 'var(--text-dim)', 'var(--blue-light)', 'var(--gold)'];
+    const tierName = ['', '普通', '稀有', '传奇'];
+
+    let html = `<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">已获得 ${myTitles.length} 个称号</div>`;
+
+    if (myTitles.length === 0) {
+      html += '<div style="font-size:11px;color:var(--text-muted);">尚未获得任何称号，继续闯荡江湖吧！</div>';
+    } else {
+      html += myTitles.map(title => {
+        const isActive = s.activeTitle === title.id;
+        const effStr = Object.entries(title.effect)
+          .filter(([k]) => !k.includes('Mod') || title.effect[k] !== 0)
+          .map(([k,v]) => {
+            const names = { npcFavorMod:'NPC好感', questRewardMod:'任务奖励', combatBonus:'战斗力',
+                           trainingBonus:'修炼效率', itemDiscountMod:'购物折扣', stealthBonus:'潜行' };
+            return `${names[k]||k}${v>0?'+':''}${v}${k.includes('Mod')||k.includes('Bonus')?'%':''}`;
+          }).join('，');
+        return `
+          <div style="padding:8px;background:var(--bg-card);border:1px solid ${isActive?'var(--gold)':'var(--border)'};border-radius:2px;margin-bottom:6px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span style="font-size:14px;color:${tierColor[title.tier]};font-weight:bold;">「${title.name}」</span>
+              <span style="font-size:9px;padding:1px 5px;border-radius:8px;border:1px solid ${tierColor[title.tier]};color:${tierColor[title.tier]}">${tierName[title.tier]}</span>
+              ${isActive ? '<span style="font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(255,200,0,0.2);color:var(--gold);">当前展示</span>' : ''}
+            </div>
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">${title.desc}</div>
+            ${effStr ? `<div style="font-size:10px;color:var(--green-light);">效果：${effStr}</div>` : ''}
+            ${!isActive ? `<button style="margin-top:6px;padding:3px 10px;font-size:10px;border:1px solid var(--gold);color:var(--gold-light);background:none;border-radius:2px;cursor:pointer;font-family:inherit;" onclick="UI.setActiveTitle('${title.id}')">设为展示称号</button>` : ''}
+          </div>`;
+      }).join('');
+    }
+
+    // 未获得的称号提示
+    const locked = DATA.TITLES.filter(t => !s.titles.includes(t.id));
+    if (locked.length > 0) {
+      html += `<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;">`;
+      html += `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">🔒 未解锁称号（${locked.length}个）</div>`;
+      html += locked.map(title => {
+        const condStr = Object.entries(title.condition).map(([k,v]) => {
+          if (k === 'questDone') return `完成任务`;
+          if (k === 'goldBelow') return `银两<${v}`;
+          return `${Engine._statName(k)}≥${v}`;
+        }).join('，');
+        return `<div style="padding:6px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:2px;margin-bottom:4px;">
+          <span style="font-size:12px;color:var(--text-muted);">「${title.name}」</span>
+          <span style="font-size:10px;color:var(--text-dim);margin-left:8px;">条件：${condStr}</span>
+        </div>`;
+      }).join('');
+      html += `</div>`;
+    }
+
+    container.innerHTML = html;
+  },
+
+  setActiveTitle(titleId) {
+    Engine.setActiveTitle(titleId);
+    this.render();
   },
 
   // ── 存档/读档 ─────────────────────────────────────────────

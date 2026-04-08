@@ -581,6 +581,7 @@ body {
   <div id="top-bar">
     <span class="top-name" id="top-name">无名侠客</span>
     <span class="top-realm" id="top-realm">后天境</span>
+    <span id="top-title" style="font-size:10px;color:var(--purple);border:1px solid var(--purple);padding:1px 6px;border-radius:8px;display:none;"></span>
     <div class="top-stat">
       <span class="top-stat-label">气血</span>
       <span class="top-stat-val" id="top-hp">100/100</span>
@@ -658,6 +659,8 @@ body {
         <button class="tab-btn" onclick="UI.switchTab('quests')">任务</button>
         <button class="tab-btn" onclick="UI.switchTab('npcs')">人物</button>
         <button class="tab-btn" onclick="UI.switchTab('sects')">门派</button>
+        <button class="tab-btn" onclick="UI.switchTab('bag')">背包</button>
+        <button class="tab-btn" onclick="UI.switchTab('titles')">称号</button>
       </div>
 
       <!-- 行动 -->
@@ -690,6 +693,16 @@ body {
       <!-- 门派 -->
       <div class="tab-content" id="tab-sects">
         <div id="sect-list"></div>
+      </div>
+
+      <!-- 背包 -->
+      <div class="tab-content" id="tab-bag">
+        <div id="bag-panel"></div>
+      </div>
+
+      <!-- 称号 -->
+      <div class="tab-content" id="tab-titles">
+        <div id="titles-panel"></div>
       </div>
     </div>
   </div>

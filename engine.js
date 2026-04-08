@@ -54,8 +54,16 @@ const Engine = {
       sectContrib: 0,       // 门派贡献
 
       // 任务
-      activeQuests: [],
-      completedQuests: [],
+      activeQuests: [],     // [{id, acceptedAt, deadline}]
+      completedQuests: [],  // [questId]
+      activeBounties: [],   // 悬赏令列表（随机生成）
+
+      // 背包
+      inventory: {},        // {itemId: count}
+
+      // 称号
+      titles: [],           // 已获得称号id列表
+      activeTitle: null,    // 当前展示称号
 
       // 日志
       log: [],
@@ -91,6 +99,9 @@ const Engine = {
     this.state = base;
     this.addLog('你踏上了江湖之路，一切从这里开始……', 'story');
     this.addLog(`初始地点：${this.getLocation().name}`, 'info');
+
+    // 生成初始悬赏令
+    this._refreshBounties();
     return base;
   },
 
@@ -155,7 +166,13 @@ const Engine = {
       this._sectMonthly();
       // 随机触发事件（20%概率）
       if (Math.random() < 0.2) this._triggerRandomEvent();
+      // 检查时限任务超时
+      this._checkQuestDeadlines();
+      // 每3个月刷新悬赏令
+      if ((s.month % 3) === 1) this._refreshBounties();
     }
+    // 检查称号
+    this._checkTitles();
   },
 
   // ── 门派月度收益 ─────────────────────────────────────────
@@ -357,7 +374,9 @@ const Engine = {
   _calcTrainGain() {
     const s = this.state;
     const gains = {};
-    const base = 1 + Math.floor(s.perception / 20);
+    const titleBonus = this._getTitleBonus();
+    const trainMod = 1 + (titleBonus.trainingBonus || 0) / 100;
+    const base = Math.ceil((1 + Math.floor(s.perception / 20)) * trainMod);
 
     // 根据已学武功决定修炼方向
     const hasInner = s.martialArts.some(m => {
@@ -500,14 +519,48 @@ const Engine = {
     return { success:false, msg:`晋升需要贡献值${reqContrib}，当前${s.sectContrib}` };
   },
 
+  // ── 接取任务 ─────────────────────────────────────────────
+  acceptQuest(questId) {
+    const s = this.state;
+    const quest = DATA.QUESTS.find(q => q.id === questId);
+    if (!quest) return { success:false, msg:'任务不存在' };
+
+    // 已完成且不可重复
+    if (s.completedQuests.includes(questId) && !quest.repeatable) {
+      return { success:false, msg:'你已经完成过这个任务了' };
+    }
+    // 已在进行中
+    if (s.activeQuests.find(q => q.id === questId)) {
+      return { success:false, msg:'你已经接取了这个任务' };
+    }
+
+    // 检查前置条件
+    for (const [k, v] of Object.entries(quest.require)) {
+      if ((s[k] || 0) < v) {
+        return { success:false, msg:`需要${this._statName(k)}达到${v}` };
+      }
+    }
+
+    // 计算截止时间
+    const currentMonth = s.year * 12 + s.month;
+    const deadline = quest.timeLimit ? currentMonth + quest.timeLimit : null;
+
+    s.activeQuests.push({ id: questId, acceptedAt: currentMonth, deadline });
+    const limitStr = quest.timeLimit ? `（限时${quest.timeLimit}个月）` : '';
+    this.addLog(`你接取了任务【${quest.name}】${limitStr}，出发吧！`, 'info');
+    return { success:true, quest };
+  },
+
   // ── 执行任务 ─────────────────────────────────────────────
   doQuest(questId) {
     const s = this.state;
     const quest = DATA.QUESTS.find(q => q.id === questId);
     if (!quest) return { success:false, msg:'任务不存在' };
 
-    if (s.completedQuests.includes(questId)) {
-      return { success:false, msg:'你已经完成过这个任务了' };
+    // 如果未接取，先自动接取
+    if (!s.activeQuests.find(q => q.id === questId)) {
+      const acceptResult = this.acceptQuest(questId);
+      if (!acceptResult.success) return acceptResult;
     }
 
     // 检查前置条件
@@ -539,8 +592,88 @@ const Engine = {
 
     // 奖励
     const reward = quest.reward;
-    if (reward.gold) { s.gold += reward.gold; }
-    if (reward.reputation) { s.reputation += reward.reputation; }
+    this._applyQuestReward(reward);
+
+    // 从进行中移除，加入已完成
+    s.activeQuests = s.activeQuests.filter(q => q.id !== questId);
+    if (!s.completedQuests.includes(questId)) s.completedQuests.push(questId);
+    this.advanceTime(cost.time);
+
+    const rewardStr = [
+      reward.gold ? `金钱+${reward.gold}` : '',
+      reward.reputation ? `声望+${reward.reputation}` : '',
+      reward.morality ? `道德+${reward.morality}` : '',
+      reward.item ? `获得${DATA.ITEMS.find(i=>i.id===reward.item)?.name||'物品'}` : '',
+    ].filter(Boolean).join('，');
+
+    this.addLog(`任务【${quest.name}】完成！${rewardStr}`, 'success');
+
+    // 任务链：解锁下一个任务
+    if (quest.chain) {
+      const nextQuest = DATA.QUESTS.find(q => q.id === quest.chain);
+      if (nextQuest) {
+        this.addLog(`新任务解锁：【${nextQuest.name}】`, 'info');
+      }
+    }
+
+    // 检查称号
+    this._checkTitles();
+
+    return { success:true, quest, reward, chainQuest: quest.chain || null };
+  },
+
+  // ── 执行悬赏令 ─────────────────────────────────────────────
+  doBounty(bountyIdx) {
+    const s = this.state;
+    const bounty = s.activeBounties[bountyIdx];
+    if (!bounty) return { success:false, msg:'悬赏令不存在' };
+
+    // 检查前置条件
+    for (const [k, v] of Object.entries(bounty.require || {})) {
+      if ((s[k] || 0) < v) {
+        return { success:false, msg:`需要${this._statName(k)}达到${v}` };
+      }
+    }
+
+    const cost = bounty.cost;
+    if (cost.energy && s.energy < cost.energy) return { success:false, msg:'体力不足' };
+    if (cost.energy) s.energy -= cost.energy;
+
+    // 战斗类有失败概率
+    if (bounty.type === 'combat') {
+      const power = this._calcCombatPower();
+      const difficulty = bounty.difficulty * 20;
+      if (power < difficulty && Math.random() < 0.35) {
+        s.hp = Math.max(1, s.hp - 20);
+        this.advanceTime(cost.time);
+        this.addLog(`悬赏令【${bounty.name}】失败，你受了轻伤。`, 'danger');
+        return { success:false, msg:'悬赏令失败' };
+      }
+    }
+
+    // 奖励（悬赏令奖励有随机浮动）
+    const reward = { ...bounty.reward };
+    reward.gold = Math.floor(reward.gold * (0.8 + Math.random() * 0.4));
+    this._applyQuestReward(reward);
+    this.advanceTime(cost.time);
+
+    // 移除已完成的悬赏令
+    s.activeBounties.splice(bountyIdx, 1);
+
+    this.addLog(`悬赏令【${bounty.name}】完成！获得${reward.gold}两银子，声望+${reward.reputation||0}。`, 'success');
+    this._checkTitles();
+    return { success:true, bounty, reward };
+  },
+
+  // ── 应用任务奖励 ─────────────────────────────────────────
+  _applyQuestReward(reward) {
+    const s = this.state;
+    // 称号加成
+    const titleBonus = this._getTitleBonus();
+    const rewardMod = 1 + (titleBonus.questRewardMod || 0) / 100;
+
+    if (reward.gold) { s.gold += Math.floor(reward.gold * rewardMod); }
+    if (reward.reputation) { s.reputation += Math.floor(reward.reputation * rewardMod); }
     if (reward.morality) { s.morality = Math.min(100, s.morality + reward.morality); }
     if (reward.evil) { s.evil += reward.evil; }
     if (reward.exp) { this._gainExp(reward.exp); }
@@ -554,18 +687,52 @@ const Engine = {
         this.addLog(`你获得了神兵【${weapon.name}】！`, 'success');
       }
     }
+    // 物品奖励
+    if (reward.item) {
+      this.addItem(reward.item, 1);
+    }
+  },
 
-    s.completedQuests.push(questId);
-    this.advanceTime(cost.time);
+  // ── 检查时限任务超时 ─────────────────────────────────────
+  _checkQuestDeadlines() {
+    const s = this.state;
+    const currentMonth = s.year * 12 + s.month;
+    const expired = s.activeQuests.filter(q => q.deadline && currentMonth > q.deadline);
+    expired.forEach(aq => {
+      const quest = DATA.QUESTS.find(q => q.id === aq.id);
+      s.activeQuests = s.activeQuests.filter(q => q.id !== aq.id);
+      this.addLog(`任务【${quest?.name || aq.id}】已超时失败！`, 'danger');
+    });
+  },
 
-    const rewardStr = [
-      reward.gold ? `金钱+${reward.gold}` : '',
-      reward.reputation ? `声望+${reward.reputation}` : '',
-      reward.morality ? `道德+${reward.morality}` : '',
-    ].filter(Boolean).join('，');
+  // ── 刷新悬赏令 ─────────────────────────────────────────────
+  _refreshBounties() {
+    const s = this.state;
+    // 保留未完成的，补充到3条
+    const maxBounties = 3;
+    const locs = ['小镇', '江湖', '襄阳', '古墓'];
+    const enemies = ['山贼头目', '蒙古细作', '魔教弟子', '江洋大盗', '恶霸地主'];
+    const templates = DATA.BOUNTY_TEMPLATES;
 
-    this.addLog(`任务【${quest.name}】完成！${rewardStr}`, 'success');
-    return { success:true, quest, reward };
+    while (s.activeBounties.length < maxBounties) {
+      const tpl = templates[Math.floor(Math.random() * templates.length)];
+      const loc = locs[Math.floor(Math.random() * locs.length)];
+      const enemy = enemies[Math.floor(Math.random() * enemies.length)];
+      const goldVal = tpl.reward.gold + Math.floor(Math.random() * 30);
+      const desc = tpl.descTpl
+        .replace('{loc}', loc)
+        .replace('{enemy}', enemy)
+        .replace('{gold}', goldVal);
+      s.activeBounties.push({
+        name: tpl.name,
+        type: tpl.type,
+        difficulty: tpl.difficulty,
+        desc,
+        reward: { ...tpl.reward, gold: goldVal },
+        cost: { ...tpl.cost },
+        require: { ...tpl.require },
+      });
+    }
   },
 
   // ── 前往某地 ─────────────────────────────────────────────
@@ -662,6 +829,9 @@ const Engine = {
     const realm = this.getRealm();
     const realmBonus = { r_mortal:1, r_xiantian:1.3, r_zongshi:1.7, r_jueding:2.2, r_legend:3 };
     power *= realmBonus[realm.id] || 1;
+    // 称号战斗加成
+    const titleBonus = this._getTitleBonus();
+    power += (titleBonus.combatBonus || 0);
     return Math.floor(power);
   },
 
@@ -702,6 +872,169 @@ const Engine = {
     s.spouse = npcId;
     this.addLog(`${npc.name}答应了你的求婚，你们结为夫妻！`, 'success');
     return { success:true, npc };
+  },
+
+  // ── 背包：添加物品 ─────────────────────────────────────────
+  addItem(itemId, count = 1) {
+    const s = this.state;
+    s.inventory[itemId] = (s.inventory[itemId] || 0) + count;
+    const item = DATA.ITEMS.find(i => i.id === itemId);
+    if (item) this.addLog(`获得 ${item.icon}${item.name} x${count}`, 'gold');
+  },
+
+  // ── 背包：使用物品 ─────────────────────────────────────────
+  useItem(itemId) {
+    const s = this.state;
+    const count = s.inventory[itemId] || 0;
+    if (count <= 0) return { success:false, msg:'背包中没有这个物品' };
+
+    const item = DATA.ITEMS.find(i => i.id === itemId);
+    if (!item) return { success:false, msg:'物品不存在' };
+    if (!item.effect || Object.keys(item.effect).length === 0) {
+      return { success:false, msg:'这个物品无法直接使用' };
+    }
+
+    // 应用效果
+    const eff = item.effect;
+    const msgs = [];
+    if (eff.energy) {
+      const gain = Math.min(eff.energy, 100 - s.energy);
+      s.energy = Math.min(100, s.energy + eff.energy);
+      if (gain > 0) msgs.push(`体力+${gain}`);
+    }
+    if (eff.hp) {
+      const gain = Math.min(eff.hp, s.maxHp - s.hp);
+      s.hp = Math.min(s.maxHp, s.hp + eff.hp);
+      if (gain > 0) msgs.push(`气血+${gain}`);
+    }
+    if (eff.innerPower) {
+      s.innerPower += eff.innerPower;
+      msgs.push(`内力+${eff.innerPower}`);
+    }
+    if (eff.strength && !eff.duration) {
+      s.strength += eff.strength;
+      msgs.push(`力量+${eff.strength}`);
+    }
+    if (eff.agility && !eff.duration) {
+      s.agility += eff.agility;
+      msgs.push(`身法+${eff.agility}`);
+    }
+    if (eff.curePoison) {
+      msgs.push('解除毒素');
+    }
+    // 临时效果（duration=1月）
+    if (eff.duration) {
+      if (eff.strength) msgs.push(`力量临时+${eff.strength}（1月）`);
+      if (eff.agility) msgs.push(`身法临时${eff.agility}（1月）`);
+    }
+
+    s.inventory[itemId]--;
+    if (s.inventory[itemId] <= 0) delete s.inventory[itemId];
+
+    this.addLog(`使用了 ${item.icon}${item.name}：${msgs.join('，')}`, 'success');
+    return { success:true, item, effects: msgs };
+  },
+
+  // ── 背包：出售物品 ─────────────────────────────────────────
+  sellItem(itemId, count = 1) {
+    const s = this.state;
+    const owned = s.inventory[itemId] || 0;
+    if (owned < count) return { success:false, msg:`背包中只有${owned}个` };
+
+    const item = DATA.ITEMS.find(i => i.id === itemId);
+    if (!item) return { success:false, msg:'物品不存在' };
+
+    const total = item.sellPrice * count;
+    s.gold += total;
+    s.inventory[itemId] -= count;
+    if (s.inventory[itemId] <= 0) delete s.inventory[itemId];
+
+    this.addLog(`出售 ${item.icon}${item.name} x${count}，获得${total}两银子。`, 'gold');
+    return { success:true, gold: total };
+  },
+
+  // ── 商店：购买物品 ─────────────────────────────────────────
+  buyItem(itemId, count = 1) {
+    const s = this.state;
+    const item = DATA.ITEMS.find(i => i.id === itemId);
+    if (!item) return { success:false, msg:'物品不存在' };
+    if (item.buyPrice <= 0) return { success:false, msg:'此物品无法购买' };
+
+    // 称号折扣
+    const titleBonus = this._getTitleBonus();
+    const discount = (titleBonus.itemDiscountMod || 0) / 100;
+    const price = Math.floor(item.buyPrice * (1 - discount)) * count;
+
+    if (s.gold < price) return { success:false, msg:`金钱不足，需要${price}两` };
+
+    s.gold -= price;
+    this.addItem(itemId, count);
+    this.addLog(`购买了 ${item.icon}${item.name} x${count}，花费${price}两。`, 'gold');
+    return { success:true, item, price };
+  },
+
+  // ── 获取当前商店库存 ─────────────────────────────────────
+  getShopItems() {
+    const loc = this.getLocation();
+    const shopItems = DATA.SHOPS[loc.name] || [];
+    return shopItems.map(id => DATA.ITEMS.find(i => i.id === id)).filter(Boolean);
+  },
+
+  // ── 称号：检查并授予 ─────────────────────────────────────
+  _checkTitles() {
+    const s = this.state;
+    DATA.TITLES.forEach(title => {
+      if (s.titles.includes(title.id)) return;
+      const cond = title.condition;
+      let match = true;
+      for (const [k, v] of Object.entries(cond)) {
+        if (k === 'questDone') {
+          if (!s.completedQuests.includes(v)) { match = false; break; }
+        } else if (k === 'goldBelow') {
+          if (s.gold >= v) { match = false; break; }
+        } else {
+          if ((s[k] || 0) < v) { match = false; break; }
+        }
+      }
+      if (match) {
+        s.titles.push(title.id);
+        if (!s.activeTitle) s.activeTitle = title.id;
+        const tierStr = ['', '【普通】', '【稀有】', '【传奇】'][title.tier] || '';
+        this.addLog(`🏅 获得称号 ${tierStr}「${title.name}」！${title.desc}`, 'success');
+      }
+    });
+  },
+
+  // ── 称号：设置当前展示称号 ─────────────────────────────────
+  setActiveTitle(titleId) {
+    const s = this.state;
+    if (!s.titles.includes(titleId)) return { success:false, msg:'尚未获得此称号' };
+    s.activeTitle = titleId;
+    const title = DATA.TITLES.find(t => t.id === titleId);
+    this.addLog(`你将称号更换为「${title?.name}」。`, 'info');
+    return { success:true };
+  },
+
+  // ── 称号：获取当前称号加成 ─────────────────────────────────
+  _getTitleBonus() {
+    const s = this.state;
+    const bonus = { npcFavorMod:0, questRewardMod:0, combatBonus:0,
+                    trainingBonus:0, itemDiscountMod:0, stealthBonus:0 };
+    s.titles.forEach(tid => {
+      const title = DATA.TITLES.find(t => t.id === tid);
+      if (!title) return;
+      const eff = title.effect;
+      Object.keys(bonus).forEach(k => {
+        if (eff[k]) bonus[k] += eff[k];
+      });
+    });
+    return bonus;
+  },
+
+  // ── 获取已获得称号列表 ─────────────────────────────────────
+  getTitles() {
+    const s = this.state;
+    return s.titles.map(tid => DATA.TITLES.find(t => t.id === tid)).filter(Boolean);
   },
 
   // ── 购买武器 ─────────────────────────────────────────────
@@ -847,6 +1180,9 @@ const Engine = {
   // ── 获取当地NPC ─────────────────────────────────────────
   getLocalNPCs() {
     const loc = this.getLocation();
+    const s = this.state;
+    const titleBonus = this._getTitleBonus();
+    const favorMod = titleBonus.npcFavorMod || 0;
     return DATA.NPCS.filter(n => {
       // 根据地点匹配NPC
       const locName = loc.name;
@@ -854,7 +1190,11 @@ const Engine = {
         (loc.id === 'l_town' && n.location === '小镇') ||
         (loc.id === 'l_jianghu' && n.location === '江湖') ||
         (loc.id === 'l_xiangyang' && (n.location === '襄阳' || n.id === 'n_guojing' || n.id === 'n_huangrong'));
-    });
+    }).map(n => ({
+      ...n,
+      // 称号影响NPC好感显示（不修改实际值，只是展示加成）
+      displayFavor: Math.min(100, (s.npcFavor[n.id] || 0) + favorMod)
+    }));
   },
 
   // ── 获取可学武功 ─────────────────────────────────────────
@@ -891,12 +1231,40 @@ const Engine = {
   // ── 获取可用任务 ─────────────────────────────────────────
   getAvailableQuests() {
     const s = this.state;
-    const loc = this.getLocation();
+    // 已完成且不可重复的排除
+    // 任务链：只显示已解锁的（前置任务已完成，或是起始任务）
+    const unlockedChainStarts = new Set();
+    DATA.QUESTS.forEach(q => {
+      if (q.chain) unlockedChainStarts.add(q.chain);
+    });
+
     return DATA.QUESTS.filter(q => {
-      if (s.completedQuests.includes(q.id)) return false;
-      // 检查地点匹配（宽松匹配）
+      if (s.completedQuests.includes(q.id) && !q.repeatable) return false;
+      if (s.activeQuests.find(aq => aq.id === q.id)) return false;
+      // 如果是链式任务的后续，需要前置任务已完成
+      if (unlockedChainStarts.has(q.id)) {
+        const prevQuest = DATA.QUESTS.find(prev => prev.chain === q.id);
+        if (prevQuest && !s.completedQuests.includes(prevQuest.id)) return false;
+      }
       return true;
     });
+  },
+
+  // ── 获取进行中任务 ─────────────────────────────────────────
+  getActiveQuests() {
+    const s = this.state;
+    return s.activeQuests.map(aq => {
+      const quest = DATA.QUESTS.find(q => q.id === aq.id);
+      if (!quest) return null;
+      const currentMonth = s.year * 12 + s.month;
+      const remaining = aq.deadline ? aq.deadline - currentMonth : null;
+      return { ...quest, acceptedAt: aq.acceptedAt, deadline: aq.deadline, remaining };
+    }).filter(Boolean);
+  },
+
+  // ── 获取悬赏令 ─────────────────────────────────────────────
+  getActiveBounties() {
+    return this.state.activeBounties;
   },
 
   // ── 保存/读取 ─────────────────────────────────────────────

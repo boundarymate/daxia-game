@@ -554,53 +554,129 @@ LOCATIONS: [
 
 // ─────────────────────────────────────────────
 //  任务库
+//  chain: 完成后解锁的下一个任务id
+//  timeLimit: 时限（月），超时自动失败
+//  repeatable: 可重复接取
 // ─────────────────────────────────────────────
 QUESTS: [
+  // ══ 普通任务 ══
   { id:'q_escort',    name:'护送商队',  type:'normal',  difficulty:1,
-    desc:'护送赵员外的商队安全抵达下一个城镇',
+    desc:'护送赵员外的商队安全抵达下一个城镇，路上可能遭遇山贼。',
     reward:{ gold:30, reputation:10, exp:20 },
-    cost:{ time:1, energy:20 },
-    require:{}, location:'小镇' },
-  { id:'q_bandit',    name:'剿灭山贼',  type:'combat',  difficulty:2,
-    desc:'附近山上有一伙山贼，官府悬赏剿灭',
-    reward:{ gold:50, reputation:20, exp:40 },
-    cost:{ time:2, energy:30 },
-    require:{ strength:20 }, location:'江湖' },
+    cost:{ time:1, energy:20 }, require:{},
+    chain:'q_escort2' },
+
+  { id:'q_escort2',   name:'护送要员',  type:'normal',  difficulty:2,
+    desc:'赵员外感激你上次的帮助，这次委托你护送一位重要客商进京，报酬丰厚。',
+    reward:{ gold:80, reputation:25, exp:40, favor:{ npc:'n_merchant', val:20 } },
+    cost:{ time:2, energy:25 }, require:{ reputation:10 },
+    chain:'q_escort3' },
+
+  { id:'q_escort3',   name:'押送军饷',  type:'combat',  difficulty:3,
+    desc:'朝廷委托押送一批军饷前往襄阳，沿途有蒙古细作觊觎，务必安全送达。',
+    reward:{ gold:150, reputation:50, morality:10, exp:80 },
+    cost:{ time:3, energy:40 }, require:{ reputation:30, strength:25 } },
+
   { id:'q_medicine',  name:'采集草药',  type:'normal',  difficulty:1,
-    desc:'林大夫需要一些珍贵草药，请你去山中采集',
-    reward:{ gold:20, reputation:5, favor:{ npc:'n_beauty', val:15 }, exp:15 },
-    cost:{ time:1, energy:15 },
-    require:{}, location:'小镇' },
+    desc:'林大夫需要一些珍贵草药，请你去山中采集。',
+    reward:{ gold:20, reputation:5, favor:{ npc:'n_beauty', val:15 }, exp:15, item:'i_herb' },
+    cost:{ time:1, energy:15 }, require:{},
+    chain:'q_medicine2' },
+
+  { id:'q_medicine2', name:'寻找百年人参', type:'explore', difficulty:2,
+    desc:'林姑娘说有位重病老人急需百年人参，深山中或许能找到，但山中危险重重。',
+    reward:{ gold:40, reputation:15, favor:{ npc:'n_beauty', val:30 }, exp:30, item:'i_ginseng' },
+    cost:{ time:2, energy:30 }, require:{},
+    chain:'q_medicine3' },
+
+  { id:'q_medicine3', name:'救治郭大侠',  type:'normal',  difficulty:2,
+    desc:'郭大侠在守城中受了内伤，林姑娘请你协助寻找解药材料，此乃大义之举。',
+    reward:{ gold:0, reputation:60, morality:20, favor:{ npc:'n_guojing', val:40 }, exp:60 },
+    cost:{ time:2, energy:20 }, require:{} },
+
+  { id:'q_bandit',    name:'剿灭山贼',  type:'combat',  difficulty:2,
+    desc:'附近山上有一伙山贼，官府悬赏剿灭，活捉首领赏银加倍。',
+    reward:{ gold:50, reputation:20, exp:40 },
+    cost:{ time:2, energy:30 }, require:{ strength:20 },
+    chain:'q_bandit2' },
+
+  { id:'q_bandit2',   name:'山贼头目',  type:'combat',  difficulty:3,
+    desc:'上次剿匪后，山贼头目亲自出马，纠集更多人马，扬言要报仇，必须将其彻底击溃。',
+    reward:{ gold:100, reputation:40, exp:70 },
+    cost:{ time:2, energy:40 }, require:{ strength:30 } },
+
   { id:'q_letter',    name:'传递书信',  type:'normal',  difficulty:1,
-    desc:'帮郭大侠传递一封重要书信到武当山',
+    desc:'帮郭大侠传递一封重要书信到武当山，务必亲手交给张真人。',
     reward:{ gold:10, reputation:15, favor:{ npc:'n_guojing', val:20 }, exp:10 },
-    cost:{ time:3, energy:20 },
-    require:{}, location:'襄阳' },
+    cost:{ time:3, energy:20 }, require:{},
+    chain:'q_letter2' },
+
+  { id:'q_letter2',   name:'秘密情报',  type:'stealth', difficulty:3,
+    desc:'郭大侠有一份关于蒙古军部署的秘密情报，需要秘密送往临安朝廷，不能被蒙古细作发现。',
+    reward:{ gold:60, reputation:40, morality:15, exp:60 },
+    cost:{ time:4, energy:35 }, require:{ agility:25, perception:20 } },
+
   { id:'q_spy',       name:'刺探军情',  type:'stealth', difficulty:3,
-    desc:'潜入蒙古大营，刺探军事部署',
+    desc:'潜入蒙古大营，刺探军事部署，带回情报可获重赏。',
     reward:{ gold:80, reputation:30, exp:60 },
-    cost:{ time:2, energy:40 },
-    require:{ agility:30 }, location:'蒙古大营' },
+    cost:{ time:2, energy:40 }, require:{ agility:30 } },
+
   { id:'q_rescue',    name:'营救人质',  type:'combat',  difficulty:3,
-    desc:'魔教绑架了无辜百姓，前去营救',
+    desc:'魔教绑架了无辜百姓，前去营救，时间紧迫！',
     reward:{ gold:60, reputation:40, morality:10, exp:50 },
-    cost:{ time:2, energy:35 },
-    require:{ strength:30, swordSkill:20 }, location:'江湖' },
+    cost:{ time:2, energy:35 }, require:{ strength:30, swordSkill:20 },
+    timeLimit: 6 },
+
   { id:'q_treasure',  name:'寻找宝藏',  type:'explore', difficulty:4,
-    desc:'传说古墓中藏有前人留下的武学秘籍',
+    desc:'传说古墓中藏有前人留下的武学秘籍，但机关重重，需要极高的身法和悟性。',
     reward:{ gold:100, exp:80, randomWeapon:true },
-    cost:{ time:3, energy:50 },
-    require:{ agility:40, perception:30 }, location:'古墓' },
+    cost:{ time:3, energy:50 }, require:{ agility:40, perception:30 } },
+
   { id:'q_defend',    name:'协助守城',  type:'combat',  difficulty:4,
-    desc:'蒙古大军来袭，协助郭大侠守卫襄阳',
+    desc:'蒙古大军来袭，协助郭大侠守卫襄阳，此乃侠义之举！',
     reward:{ gold:0, reputation:60, morality:20, exp:100 },
-    cost:{ time:5, energy:60 },
-    require:{ strength:40, innerPower:30 }, location:'襄阳' },
+    cost:{ time:5, energy:60 }, require:{ strength:40, innerPower:30 },
+    repeatable: true },
+
   { id:'q_assassin',  name:'暗杀任务',  type:'evil',    difficulty:3,
-    desc:'魔教委托你暗杀一名官员',
+    desc:'魔教委托你暗杀一名官员，事成之后重金酬谢。',
     reward:{ gold:150, evil:20, exp:50 },
-    cost:{ time:1, energy:30 },
-    require:{ evil:10 }, location:'江湖' },
+    cost:{ time:1, energy:30 }, require:{ evil:10 } },
+
+  // ══ 时限任务（紧急）══
+  { id:'q_urgent_herb', name:'【紧急】寻药救人', type:'normal', difficulty:2,
+    desc:'【限时6个月】城中爆发瘟疫，急需大量草药，每耽误一天都有人命危在旦夕！',
+    reward:{ gold:120, reputation:50, morality:25, exp:60 },
+    cost:{ time:2, energy:30 }, require:{},
+    timeLimit: 6 },
+
+  { id:'q_urgent_defend', name:'【紧急】边境告急', type:'combat', difficulty:4,
+    desc:'【限时4个月】蒙古军突袭边境小城，守军告急，需要立刻驰援！',
+    reward:{ gold:0, reputation:80, morality:30, exp:120 },
+    cost:{ time:3, energy:50 }, require:{ strength:35, innerPower:25 },
+    timeLimit: 4 },
+],
+
+// ─────────────────────────────────────────────
+//  I: 悬赏令模板（随机生成）
+// ─────────────────────────────────────────────
+BOUNTY_TEMPLATES: [
+  { id:'bt_bandit',   name:'剿匪悬赏',   type:'combat',  difficulty:2,
+    descTpl:'官府悬赏：击败盘踞{loc}的{enemy}，赏银{gold}两。',
+    reward:{ gold:40, reputation:15 }, cost:{ time:1, energy:25 },
+    require:{ strength:15 } },
+  { id:'bt_escort',   name:'护镖悬赏',   type:'normal',  difficulty:1,
+    descTpl:'镖局急招：护送货物从{loc}出发，安全送达赏银{gold}两。',
+    reward:{ gold:25, reputation:8 }, cost:{ time:1, energy:15 },
+    require:{} },
+  { id:'bt_hunt',     name:'猎杀恶人',   type:'combat',  difficulty:3,
+    descTpl:'江湖通缉：{enemy}作恶多端，击败者赏银{gold}两，声望大增。',
+    reward:{ gold:80, reputation:30, morality:10 }, cost:{ time:2, energy:35 },
+    require:{ strength:25 } },
+  { id:'bt_explore',  name:'探路悬赏',   type:'explore', difficulty:2,
+    descTpl:'商队急需：探明{loc}附近的安全路线，报酬{gold}两。',
+    reward:{ gold:35, reputation:10 }, cost:{ time:2, energy:30 },
+    require:{ agility:20 } },
 ],
 
 // ─────────────────────────────────────────────
@@ -802,6 +878,176 @@ REALMS: [
   { id:'r_zongshi',   name:'宗师境',   minPower:250,  desc:'武功已臻宗师，江湖一流高手' },
   { id:'r_jueding',   name:'绝顶境',   minPower:500,  desc:'武功绝顶，天下罕有敌手' },
   { id:'r_legend',    name:'传说境',   minPower:800,  desc:'武林传说，名垂千古' },
+],
+
+// ─────────────────────────────────────────────
+//  K: 物品/药材库
+//  type: herb=草药, pill=丹药, food=食物, material=材料, weapon=武器
+//  effect: 使用时的效果
+//  buyPrice: 商店购买价，0=不可购买
+//  sellPrice: 出售价格
+// ─────────────────────────────────────────────
+ITEMS: [
+  // ── 草药 ──
+  { id:'i_herb',      name:'普通草药',  type:'herb',
+    desc:'山中常见草药，可恢复少量体力，也是许多丹药的基础材料。',
+    effect:{ energy:15 }, buyPrice:5, sellPrice:2,
+    icon:'🌿' },
+  { id:'i_ginseng',   name:'百年人参',  type:'herb',
+    desc:'深山中生长百年的人参，药力极为强劲，可大幅恢复体力和内力。',
+    effect:{ energy:40, innerPower:5 }, buyPrice:80, sellPrice:40,
+    icon:'🌱' },
+  { id:'i_lingzhi',   name:'千年灵芝',  type:'herb',
+    desc:'传说中的仙草，极为罕见，服用后内力大增，甚至可以突破瓶颈。',
+    effect:{ energy:30, innerPower:15, hp:20 }, buyPrice:200, sellPrice:100,
+    icon:'🍄' },
+  { id:'i_xuelian',   name:'雪莲花',    type:'herb',
+    desc:'生长于雪山之巅的奇花，清热解毒，可解大多数毒素。',
+    effect:{ energy:20, curePoison:true }, buyPrice:60, sellPrice:30,
+    icon:'🌸' },
+  { id:'i_wudu',      name:'五毒草',    type:'herb',
+    desc:'含有剧毒的草药，可用于炼制毒药，也可少量入药治疗顽疾。',
+    effect:{ energy:5 }, buyPrice:15, sellPrice:8,
+    icon:'🌾' },
+
+  // ── 丹药 ──
+  { id:'i_huisheng',  name:'回生丹',    type:'pill',
+    desc:'名医所制，服用后可迅速恢复大量体力，战斗中的救命良药。',
+    effect:{ energy:60, hp:30 }, buyPrice:120, sellPrice:60,
+    icon:'💊' },
+  { id:'i_peiyuan',   name:'培元丹',    type:'pill',
+    desc:'专门培补元气的丹药，长期服用可增强内力根基。',
+    effect:{ energy:30, innerPower:10 }, buyPrice:80, sellPrice:40,
+    icon:'🔴' },
+  { id:'i_jiedu',     name:'解毒丹',    type:'pill',
+    desc:'可解百毒的神丹，江湖行走必备之物。',
+    effect:{ curePoison:true, energy:10 }, buyPrice:50, sellPrice:25,
+    icon:'🟢' },
+  { id:'i_dali',      name:'大力丸',    type:'pill',
+    desc:'服用后短时间内力量大增，但过后会有虚弱感。',
+    effect:{ strength:15, energy:-10, duration:1 }, buyPrice:40, sellPrice:20,
+    icon:'🟡' },
+  { id:'i_jiuhua',    name:'九花玉露丸', type:'pill',
+    desc:'极品丹药，传说是全真教秘方所制，服用后内力修为大进。',
+    effect:{ energy:50, innerPower:20, hp:20 }, buyPrice:300, sellPrice:150,
+    icon:'⚪' },
+
+  // ── 食物 ──
+  { id:'i_food',      name:'干粮',      type:'food',
+    desc:'普通干粮，可以充饥恢复少量体力。',
+    effect:{ energy:10 }, buyPrice:2, sellPrice:1,
+    icon:'🍞' },
+  { id:'i_wine',      name:'好酒',      type:'food',
+    desc:'一壶好酒，喝下去心情大好，但可能影响身法。',
+    effect:{ energy:15, agility:-5, duration:1 }, buyPrice:10, sellPrice:5,
+    icon:'🍶' },
+  { id:'i_meat',      name:'烤全羊',    type:'food',
+    desc:'大块吃肉，大碗喝酒，江湖豪迈！恢复体力效果极佳。',
+    effect:{ energy:25, strength:5, duration:1 }, buyPrice:20, sellPrice:10,
+    icon:'🍖' },
+
+  // ── 材料 ──
+  { id:'i_ironore',   name:'精铁矿石',  type:'material',
+    desc:'打造兵器的上等材料，铁匠铺收购价格不错。',
+    effect:{}, buyPrice:0, sellPrice:15,
+    icon:'⚙️' },
+  { id:'i_jade',      name:'碧玉',      type:'material',
+    desc:'上等碧玉，可用于制作护身符，也可出售给珠宝商。',
+    effect:{}, buyPrice:0, sellPrice:50,
+    icon:'💎' },
+],
+
+// ─────────────────────────────────────────────
+//  K: 商店库存（不同地点有不同商品）
+// ─────────────────────────────────────────────
+SHOPS: {
+  '小镇': ['i_herb', 'i_food', 'i_wine', 'i_jiedu'],
+  '江湖': ['i_herb', 'i_food', 'i_huisheng', 'i_jiedu', 'i_dali'],
+  '襄阳': ['i_herb', 'i_ginseng', 'i_huisheng', 'i_peiyuan', 'i_jiedu', 'i_food', 'i_meat', 'i_wine'],
+  '古墓': [],
+  '蒙古大营': [],
+},
+
+// ─────────────────────────────────────────────
+//  L: 称号系统
+//  condition: 触发条件（满足任意一项即可获得）
+//  effect: 称号带来的被动效果（影响NPC好感和事件概率）
+//  tier: 1=普通, 2=稀有, 3=传奇
+// ─────────────────────────────────────────────
+TITLES: [
+  // ── 声望类 ──
+  { id:'tl_wanderer',   name:'江湖游侠',  tier:1,
+    desc:'初入江湖，小有名气的游侠。',
+    condition:{ reputation:20 },
+    effect:{ npcFavorMod:5, questRewardMod:0 } },
+  { id:'tl_hero',       name:'一方豪杰',  tier:1,
+    desc:'在一方地界颇有名望，百姓口耳相传。',
+    condition:{ reputation:60 },
+    effect:{ npcFavorMod:10, questRewardMod:5 } },
+  { id:'tl_famous',     name:'名震江湖',  tier:2,
+    desc:'名声响彻江湖，无论走到哪里都有人认识你。',
+    condition:{ reputation:120 },
+    effect:{ npcFavorMod:20, questRewardMod:10, eventMod:{ positive:10 } } },
+  { id:'tl_legend',     name:'武林传奇',  tier:3,
+    desc:'你的名字已成为传奇，江湖中无人不知无人不晓。',
+    condition:{ reputation:250 },
+    effect:{ npcFavorMod:35, questRewardMod:20, eventMod:{ positive:20 } } },
+
+  // ── 武功类 ──
+  { id:'tl_swordsman',  name:'剑客',      tier:1,
+    desc:'以剑闻名，剑法颇有造诣。',
+    condition:{ swordSkill:40 },
+    effect:{ combatBonus:5 } },
+  { id:'tl_swordmaster',name:'剑道高手',  tier:2,
+    desc:'剑法已臻化境，出剑如行云流水。',
+    condition:{ swordSkill:100 },
+    effect:{ combatBonus:15, npcFavorMod:10 } },
+  { id:'tl_innermaster',name:'内功宗师',  tier:2,
+    desc:'内力深厚，已达宗师境界，修炼速度远超常人。',
+    condition:{ innerPower:150 },
+    effect:{ trainingBonus:20, combatBonus:10 } },
+
+  // ── 道德类 ──
+  { id:'tl_righteous',  name:'正道侠士',  tier:1,
+    desc:'行事光明磊落，是正道中人的楷模。',
+    condition:{ morality:40 },
+    effect:{ npcFavorMod:15, eventMod:{ positive:5 } } },
+  { id:'tl_greatxia',   name:'侠之大者',  tier:3,
+    desc:'为国为民，侠之大者。郭大侠亲口称赞的称号。',
+    condition:{ morality:80, reputation:150 },
+    effect:{ npcFavorMod:40, questRewardMod:15, eventMod:{ positive:25 } } },
+  { id:'tl_evil',       name:'魔头',      tier:1,
+    desc:'作恶多端，江湖中人人喊打。',
+    condition:{ evil:40 },
+    effect:{ npcFavorMod:-20, eventMod:{ negative:10 } } },
+  { id:'tl_demon',      name:'一代魔头',  tier:2,
+    desc:'恶名昭著，令人闻风丧胆，正道中人见之必诛。',
+    condition:{ evil:80 },
+    effect:{ npcFavorMod:-35, combatBonus:10, eventMod:{ negative:20 } } },
+
+  // ── 任务类 ──
+  { id:'tl_guardian',   name:'守城英雄',  tier:2,
+    desc:'参与守卫襄阳，被百姓称为守城英雄。',
+    condition:{ questDone:'q_defend' },
+    effect:{ npcFavorMod:20, morality:5 } },
+  { id:'tl_doctor',     name:'悬壶济世',  tier:1,
+    desc:'多次帮助医治病患，被称为悬壶济世的大夫。',
+    condition:{ questDone:'q_medicine3' },
+    effect:{ npcFavorMod:15, itemDiscountMod:10 } },
+  { id:'tl_spy',        name:'影子刺客',  tier:2,
+    desc:'多次完成潜入任务，行踪飘忽如影随形。',
+    condition:{ questDone:'q_spy' },
+    effect:{ combatBonus:8, stealthBonus:20 } },
+
+  // ── 财富类 ──
+  { id:'tl_rich',       name:'富甲一方',  tier:1,
+    desc:'家财万贯，在江湖中颇有财力。',
+    condition:{ gold:500 },
+    effect:{ itemDiscountMod:5, npcFavorMod:5 } },
+  { id:'tl_pauper',     name:'穷困潦倒',  tier:1,
+    desc:'身无分文，连饭都吃不起，江湖路难行。',
+    condition:{ goldBelow:10 },
+    effect:{ npcFavorMod:-5, questRewardMod:-5 } },
 ],
 
 // ─────────────────────────────────────────────

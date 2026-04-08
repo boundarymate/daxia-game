@@ -1329,4 +1329,279 @@ COMBAT_COUNTER: {
   defend:   {},
 },
 
+// ═══════════════════════════════════════════════════════════
+//  A: 结局扩展数据
+// ═══════════════════════════════════════════════════════════
+ENDINGS_EXTRA: [
+  {
+    id: 'ending_xiangyang',
+    name: '守卫襄阳',
+    tier: 'epic',
+    icon: '🏯',
+    desc: '你率领中原武林，在襄阳城下与蒙古大军血战三日三夜。城墙之上，你的身影如同一座不倒的丰碑。此战之后，你的名字传遍天下，成为中原武林永远铭记的英雄。',
+    condition: { reputation: 200, factionAttitude_f_zhengdao: 60, factionAttitude_f_mongol: -60, questDone: 'q_defend_xiangyang' },
+    epilogue: '数十年后，说书人仍在讲述那场守城之战，而你的名字，已成为侠义精神的象征。',
+  },
+  {
+    id: 'ending_evil_lord',
+    name: '魔道宗主',
+    tier: 'epic',
+    icon: '👹',
+    desc: '你踏遍江湖，以无上邪功震慑四方。正道武林谈你色变，邪道中人俯首称臣。你建立了一个以恐惧为基石的黑暗王国，成为这个时代最令人畏惧的存在。',
+    condition: { evil: 80, innerPower: 300, battlesWon: 30, factionAttitude_f_zhengdao: -70 },
+    epilogue: '你的统治带来了一段黑暗岁月，但也有人说，正是你的存在，让正道武林重新团结起来……',
+  },
+  {
+    id: 'ending_hermit',
+    name: '归隐山林',
+    tier: 'legendary',
+    icon: '🌿',
+    desc: '看透了江湖的恩怨情仇，你选择在一处世外桃源隐居。青山绿水，晨钟暮鼓，你将毕生所学著成一部武学秘典，留待有缘人。这或许才是真正的逍遥。',
+    condition: { age: 50, morality: 80, martialArtsCount: 5 },
+    epilogue: '多年后，有人在深山中发现了一部残缺的武学秘典，据说是一位无名高人所著，其中武学之深，令天下高手叹为观止。',
+  },
+  {
+    id: 'ending_wulin_leader',
+    name: '武林盟主',
+    tier: 'legendary',
+    icon: '👑',
+    desc: '你在武林大会上力压群雄，被推举为新一任武林盟主。从此号令天下，莫敢不从。你以仁义治理武林，开创了一段太平盛世。',
+    condition: { reputation: 300, morality: 70, tournamentWins: 3 },
+    epilogue: '你的盟主任期内，江湖纷争大为减少，百姓安居乐业。史书上留下了你的名字——一代仁侠。',
+  },
+  {
+    id: 'ending_disciple_legacy',
+    name: '薪火相传',
+    tier: 'rare',
+    icon: '🕯️',
+    desc: '你收下了数名弟子，将毕生武学倾囊相授。当你年迈之时，弟子们已各自成名，将你的武学与精神传遍天下。',
+    condition: { discipleCount: 3, age: 55 },
+    epilogue: '你的弟子中，有人成了一代宗师，有人守护了一方百姓，有人写下了武学典籍。你的传承，比你的武功更加长久。',
+  },
+],
+
+// ═══════════════════════════════════════════════════════════
+//  B: 武林大会数据
+// ═══════════════════════════════════════════════════════════
+TOURNAMENT: {
+  // 大会每3年举办一次（36个月）
+  intervalMonths: 36,
+  // 首届在第2年举办
+  firstYear: 2,
+  name: '武林大会',
+  locations: ['嵩山', '华山', '泰山', '少林寺'],
+  rounds: [
+    { name: '初赛', powerReq: 0,   reward: { gold: 50,  reputation: 20, exp: 30 } },
+    { name: '半决赛', powerReq: 60, reward: { gold: 150, reputation: 60, exp: 80 } },
+    { name: '决赛',  powerReq: 100, reward: { gold: 300, reputation: 150, exp: 200, title: 'title_wulin_hero' } },
+  ],
+  // 搅局奖励（偷袭/破坏）
+  sabotageReward: { gold: 80, evil: 10, reputation: -20 },
+  // 观战奖励（学习对手招式）
+  watchReward: { perception: 5, exp: 20 },
+},
+
+// ═══════════════════════════════════════════════════════════
+//  C: 奇遇系统数据
+// ═══════════════════════════════════════════════════════════
+HIDDEN_EVENTS: [
+  {
+    id: 'he_ancient_tomb',
+    name: '古墓奇遇',
+    icon: '🏚️',
+    trigger: { location: 'l_zhongnan', minVisits: 3, chance: 0.3 },
+    desc: '终南山深处，你发现了一处隐秘的古墓入口。墓中阴气森森，却隐约有武学气息……',
+    choices: [
+      {
+        text: '深入探索',
+        require: {},
+        result: { type: 'martial_secret', martialTier: 4, desc: '你在古墓中发现了一部绝世武学秘籍！' },
+      },
+      {
+        text: '谨慎离开',
+        require: {},
+        result: { type: 'nothing', desc: '你感到一阵不安，转身离去。' },
+      },
+    ],
+  },
+  {
+    id: 'he_jiuhua_valley',
+    name: '绝情谷底',
+    icon: '🌸',
+    trigger: { location: 'l_xiangyang', minVisits: 2, chance: 0.25, require: { charm: 60 } },
+    desc: '谷底深处，百花盛开，一名白衣女子正在练剑。她见到你，眼中闪过一丝异色……',
+    choices: [
+      {
+        text: '上前搭话',
+        require: { charm: 60 },
+        result: { type: 'npc_favor', npcId: 'npc_xiaolongnv', bonus: 30, desc: '她对你颇有好感，传授了你一套剑法。' },
+      },
+      {
+        text: '默默离开',
+        require: {},
+        result: { type: 'nothing', desc: '你悄然离去，不打扰她的清修。' },
+      },
+    ],
+  },
+  {
+    id: 'he_guangming_peak',
+    name: '光明顶密道',
+    icon: '🔥',
+    trigger: { location: 'l_wudang', minVisits: 2, chance: 0.2, require: { factionAttitude_f_mingjiao: 30 } },
+    desc: '明教中人悄悄告诉你，光明顶下有一条密道，藏有明教历代教主的武学心得……',
+    choices: [
+      {
+        text: '进入密道',
+        require: { factionAttitude_f_mingjiao: 30 },
+        result: { type: 'inner_boost', amount: 50, desc: '你在密道中修炼三日，内力大进！' },
+      },
+      {
+        text: '婉言谢绝',
+        require: {},
+        result: { type: 'faction_favor', faction: 'f_mingjiao', delta: 10, desc: '你的谨慎让明教中人更加信任你。' },
+      },
+    ],
+  },
+  {
+    id: 'he_peach_blossom',
+    name: '桃花岛秘境',
+    icon: '🌺',
+    trigger: { location: 'l_jiaxing', minVisits: 3, chance: 0.2 },
+    desc: '嘉兴湖畔，一叶小舟飘来，船上老者须发皆白，正在弹琴。他见到你，微微一笑……',
+    choices: [
+      {
+        text: '以武会友',
+        require: { swordSkill: 80 },
+        result: { type: 'train_bonus', bonus: { swordSkill: 30, perception: 15 }, desc: '老者传授了你桃花岛的剑法精髓！' },
+      },
+      {
+        text: '聆听琴音',
+        require: {},
+        result: { type: 'train_bonus', bonus: { perception: 20, charm: 10 }, desc: '琴声中蕴含武学至理，你若有所悟。' },
+      },
+    ],
+  },
+  {
+    id: 'he_shaolin_scripture',
+    name: '少林藏经阁',
+    icon: '📿',
+    trigger: { location: 'l_luoyang', minVisits: 2, chance: 0.15, require: { morality: 70 } },
+    desc: '少林寺方丈见你心性纯良，邀你入藏经阁观摩一日……',
+    choices: [
+      {
+        text: '潜心研读',
+        require: { morality: 70 },
+        result: { type: 'train_bonus', bonus: { innerPower: 40, endurance: 20 }, desc: '你从佛经中悟出了内功心法的精髓！' },
+      },
+      {
+        text: '顺手牵羊',
+        require: {},
+        result: { type: 'steal_martial', morality: -30, evil: 20, desc: '你偷走了一部秘籍，但内心深感不安。' },
+      },
+    ],
+  },
+  {
+    id: 'he_dugu_sword',
+    name: '独孤剑冢',
+    icon: '⚔️',
+    trigger: { location: 'l_zhongnan', minVisits: 5, chance: 0.1, require: { swordSkill: 120 } },
+    desc: '终南山绝顶，你发现了三座剑冢。冢前石碑上刻着：剑魔独孤求败。一股无形剑意扑面而来……',
+    choices: [
+      {
+        text: '感悟剑意（需剑术120）',
+        require: { swordSkill: 120 },
+        result: { type: 'train_bonus', bonus: { swordSkill: 60, innerPower: 30 }, desc: '你在剑冢前枯坐三日，剑法突破至化境！' },
+      },
+      {
+        text: '取走利剑',
+        require: {},
+        result: { type: 'weapon_special', weaponId: 'w_dugu_sword', desc: '你取走了剑冢中的一把玄铁重剑。' },
+      },
+    ],
+  },
+],
+
+// ═══════════════════════════════════════════════════════════
+//  D: 弟子培养数据
+// ═══════════════════════════════════════════════════════════
+DISCIPLE_TEMPLATES: [
+  {
+    id: 'disc_young_hero',
+    name: '少年英雄',
+    icon: '🧒',
+    desc: '一名天资聪颖的少年，眼中充满对武学的渴望。',
+    talent: 'sword',
+    baseStats: { strength: 20, agility: 25, perception: 30 },
+    growthRate: 1.2,
+    require: { reputation: 50 },
+    recruitCost: { gold: 0, energy: 20 },
+  },
+  {
+    id: 'disc_village_girl',
+    name: '村姑奇才',
+    icon: '👧',
+    desc: '看似普通的村姑，却有着惊人的武学天赋，尤其擅长轻功。',
+    talent: 'qinggong',
+    baseStats: { agility: 35, charm: 25, perception: 25 },
+    growthRate: 1.3,
+    require: { morality: 60 },
+    recruitCost: { gold: 0, energy: 15 },
+  },
+  {
+    id: 'disc_fallen_noble',
+    name: '落魄贵公子',
+    icon: '🧑',
+    desc: '家道中落的贵族子弟，自幼习武，基础扎实，缺乏实战经验。',
+    talent: 'inner',
+    baseStats: { innerPower: 30, endurance: 25, charm: 30 },
+    growthRate: 1.1,
+    require: { gold: 100 },
+    recruitCost: { gold: 100, energy: 10 },
+  },
+  {
+    id: 'disc_orphan',
+    name: '孤儿侠客',
+    icon: '👦',
+    desc: '父母双亡的孤儿，心中充满仇恨与渴望，潜力无限。',
+    talent: 'palm',
+    baseStats: { strength: 30, endurance: 30, perception: 20 },
+    growthRate: 1.4,
+    require: { morality: 40 },
+    recruitCost: { gold: 0, energy: 25 },
+  },
+],
+
+// 弟子可执行的任务
+DISCIPLE_MISSIONS: [
+  { id: 'dm_patrol',    name: '巡逻护院',  duration: 1, reward: { gold: 30, exp: 10 },  risk: 0.1 },
+  { id: 'dm_collect',  name: '采集草药',  duration: 2, reward: { items: ['i_herb'], exp: 15 }, risk: 0.05 },
+  { id: 'dm_bounty',   name: '完成悬赏',  duration: 3, reward: { gold: 80, exp: 30, reputation: 10 }, risk: 0.25 },
+  { id: 'dm_spy',      name: '刺探情报',  duration: 2, reward: { gold: 50, exp: 20 }, risk: 0.3 },
+  { id: 'dm_challenge',name: '挑战高手',  duration: 1, reward: { exp: 50 }, risk: 0.4 },
+],
+
+// ═══════════════════════════════════════════════════════════
+//  E: 武林排行榜数据
+// ═══════════════════════════════════════════════════════════
+RANKING_LIST: [
+  { rank: 1,  name: '独孤求败', title: '剑魔',     power: 500, martialType: 'sword',    align: 'neutral', desc: '以剑法独步天下，求一败而不得，已归隐多年。', npcId: null },
+  { rank: 2,  name: '王重阳',   title: '中神通',   power: 450, martialType: 'inner',    align: 'good',    desc: '全真教创始人，天下第一高手，已仙逝。', npcId: null },
+  { rank: 3,  name: '东邪黄药师',title: '东邪',    power: 400, martialType: 'hidden',   align: 'neutral', desc: '桃花岛主，武学奇才，行事怪僻。', npcId: 'npc_huangyaoshi' },
+  { rank: 4,  name: '西毒欧阳锋',title: '西毒',    power: 390, martialType: 'evil',     align: 'evil',    desc: '白驼山主，蛤蟆功天下无双。', npcId: null },
+  { rank: 5,  name: '南帝段智兴',title: '南帝',    power: 380, martialType: 'inner',    align: 'good',    desc: '大理皇帝，一阳指举世无双。', npcId: null },
+  { rank: 6,  name: '北丐洪七公',title: '北丐',    power: 370, martialType: 'palm',     align: 'good',    desc: '丐帮帮主，降龙十八掌传人。', npcId: 'npc_hongqigong' },
+  { rank: 7,  name: '金轮法王',  title: '国师',    power: 320, martialType: 'inner',    align: 'evil',    desc: '蒙古国师，金轮功法威力无穷。', npcId: null },
+  { rank: 8,  name: '杨过',      title: '神雕大侠', power: 300, martialType: 'sword',   align: 'good',    desc: '独臂大侠，黯然销魂掌创始人。', npcId: 'npc_yangguo' },
+  { rank: 9,  name: '小龙女',    title: '古墓仙子', power: 280, martialType: 'qinggong', align: 'neutral', desc: '古墓派传人，玉女心经无双。', npcId: 'npc_xiaolongnv' },
+  { rank: 10, name: '郭靖',      title: '大侠',    power: 260, martialType: 'palm',     align: 'good',    desc: '降龙十八掌与九阴真经双修，守卫襄阳的英雄。', npcId: 'npc_guojing' },
+],
+
+// 挑战排行榜的奖励
+RANKING_CHALLENGE_REWARD: {
+  win:  { reputation: 50, exp: 100, gold: 200 },
+  lose: { reputation: -10, exp: 30 },
+  // 击败前三名的特殊奖励
+  topThreeBonus: { reputation: 200, title: 'title_wulin_first' },
+},
+
 };

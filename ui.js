@@ -318,12 +318,30 @@ const UI = {
     // 日志
     this.renderLog();
 
-    // 检查结局
-    const ending = Engine.checkEnding();
+    // 检查结局（含扩展结局）
+    const ending = Engine.checkEnding ? Engine.checkEnding() : null;
     if (ending) this.showEnding(ending);
+    // 扩展结局
+    const s = Engine.state;
+    if (s.ending && !this._shownExtraEnding) {
+      this._shownExtraEnding = s.ending.id;
+      setTimeout(() => this.showExtraEnding(s.ending), 500);
+    }
 
     // 检查随机事件
     this.checkRandomEvent();
+
+    // C: 检查奇遇弹窗
+    const pendingHE = Engine.getPendingHiddenEvent ? Engine.getPendingHiddenEvent() : null;
+    if (pendingHE && !this._pendingHEShown) {
+      this._pendingHEShown = pendingHE.id;
+      setTimeout(() => this.showHiddenEventModal(pendingHE), 600);
+    } else if (!pendingHE) {
+      this._pendingHEShown = null;
+    }
+
+    // B: 武林大会行动提示
+    this._tournamentActive = Engine.isTournamentActive ? Engine.isTournamentActive() : false;
   },
 
   renderStatBars() {
@@ -473,16 +491,18 @@ const UI = {
       case 'quests':   this.renderQuestsTab(); break;
       case 'npcs':     this.renderNPCs(); break;
       case 'sects':    this.renderSects(); break;
-      case 'rumors':   this.renderRumors(); break;
-      case 'factions': this.renderFactions(); break;
-      case 'bag':      this.renderBag(); break;
+      case 'rumors':    this.renderRumors(); break;
+      case 'factions':  this.renderFactions(); break;
+      case 'disciples': this.renderDisciples(); break;
+      case 'ranking':   this.renderRanking(); break;
+      case 'bag':       this.renderBag(); break;
       case 'titles':   this.renderTitles(); break;
     }
   },
 
   renderActions() {
     const actions = Engine.getAvailableActions();
-    document.getElementById('action-grid').innerHTML = actions.map(a => `
+    let html = actions.map(a => `
       <div class="action-btn" onclick="UI.doAction('${a.id}')">
         <div class="action-icon">${a.icon}</div>
         <div class="action-name">${a.name}</div>
@@ -490,6 +510,31 @@ const UI = {
         <div class="action-desc">${a.desc}</div>
       </div>
     `).join('');
+
+    // B: 武林大会行动（大会期间显示）
+    if (this._tournamentActive) {
+      const loc = Engine.getTournamentLocation ? Engine.getTournamentLocation() : '';
+      html += `
+        <div style="grid-column:1/-1;background:rgba(255,200,0,0.08);border:1px solid var(--gold);border-radius:2px;padding:10px;margin-top:4px;">
+          <div style="font-size:13px;color:var(--gold);font-weight:bold;margin-bottom:8px;">🏆 武林大会正在${loc}举行！</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+            <div class="action-btn" onclick="UI.joinTournament()" style="border-color:var(--gold);">
+              <div class="action-icon">⚔️</div><div class="action-name">参赛</div>
+              <div class="action-cost">体力-30</div><div class="action-desc">闯关夺冠</div>
+            </div>
+            <div class="action-btn" onclick="UI.watchTournament()" style="border-color:var(--blue);">
+              <div class="action-icon">👁️</div><div class="action-name">观战</div>
+              <div class="action-cost">体力-10</div><div class="action-desc">观摩学习</div>
+            </div>
+            <div class="action-btn" onclick="UI.sabotageTournament()" style="border-color:var(--red);">
+              <div class="action-icon">🗡️</div><div class="action-name">搅局</div>
+              <div class="action-cost">体力-20</div><div class="action-desc">浑水摸鱼</div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    document.getElementById('action-grid').innerHTML = html;
   },
 
   renderMap() {
@@ -751,7 +796,7 @@ const UI = {
   switchTab(tab) {
     this.currentTab = tab;
     document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-      const tabs = ['actions','map','martial','quests','npcs','sects','rumors','factions','bag','titles'];
+      const tabs = ['actions','map','martial','quests','npcs','sects','rumors','factions','disciples','ranking','bag','titles'];
       btn.classList.toggle('active', tabs[i] === tab);
     });
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -1352,6 +1397,310 @@ const UI = {
     el.classList.add('show');
     clearTimeout(this._toastTimer);
     this._toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  B: 武林大会 UI
+  // ════════════════════════════════════════════════════════════
+
+  joinTournament() {
+    const result = Engine.joinTournament();
+    if (!result.success) { this.toast(result.msg); return; }
+    if (result.won) {
+      this.toast(`🏆 大会冠军！获得${result.gold}两、声望+${result.reputation}！`);
+    } else {
+      this.toast(`⚔️ 在${result.round}中落败，但有所收获。`);
+    }
+    this.render();
+  },
+
+  watchTournament() {
+    const result = Engine.watchTournament();
+    if (!result.success) { this.toast(result.msg); return; }
+    this.toast('👁️ 观战有所感悟！');
+    this.render();
+  },
+
+  sabotageTournament() {
+    const result = Engine.sabotageTournament();
+    if (!result.success) { this.toast(result.msg); return; }
+    this.toast(result.sabotageSuccess ? '🗡️ 搅局成功！' : '💥 搅局失败！');
+    this.render();
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  C: 奇遇系统 UI
+  // ════════════════════════════════════════════════════════════
+
+  showHiddenEventModal(he) {
+    const s = Engine.state;
+    const html = `
+      <div class="modal-overlay" id="hidden-event-modal" style="display:flex;">
+        <div class="modal-box">
+          <div class="modal-title">${he.icon} ${he.name}</div>
+          <div class="modal-desc" style="line-height:1.7;">${he.desc}</div>
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;">
+            ${he.choices.map((c, i) => {
+              const reqEntries = Object.entries(c.require || {});
+              let canChoose = true;
+              for (const [k, v] of reqEntries) {
+                if ((s[k] || 0) < v) { canChoose = false; break; }
+              }
+              const reqStr = reqEntries.length > 0 ? ` (需${reqEntries.map(([k,v])=>`${Engine._statName(k)}≥${v}`).join('，')})` : '';
+              return `<button onclick="UI.resolveHiddenEvent('${he.id}',${i})" style="
+                padding:10px;border:1px solid ${canChoose?'var(--gold)':'var(--border)'};
+                color:${canChoose?'var(--gold-light)':'var(--text-muted)'};
+                background:none;border-radius:2px;cursor:${canChoose?'pointer':'not-allowed'};
+                font-family:inherit;font-size:12px;text-align:left;opacity:${canChoose?1:0.5};"
+                ${canChoose?'':'disabled'}>
+                ${c.text}${reqStr}
+              </button>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  },
+
+  resolveHiddenEvent(eventId, choiceIdx) {
+    const modal = document.getElementById('hidden-event-modal');
+    if (modal) modal.remove();
+    const result = Engine.resolveHiddenEvent(eventId, choiceIdx);
+    if (!result.success) { this.toast(result.msg || '无法选择'); return; }
+    this.toast(result.msgs.slice(0, 2).join('，'));
+    this.render();
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  D: 弟子培养 UI
+  // ════════════════════════════════════════════════════════════
+
+  renderDisciples() {
+    const container = document.getElementById('disciples-panel');
+    if (!container) return;
+    const disciples = Engine.getDisciples();
+    const available = Engine.getAvailableDisciples();
+    const talentMap = { sword:'剑法', inner:'内功', palm:'掌法', qinggong:'轻功', hidden:'暗器', evil:'邪功' };
+
+    let html = `<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">门下弟子（${disciples.length}/4）</div>`;
+
+    // 已收录弟子
+    if (disciples.length > 0) {
+      html += disciples.map((d, idx) => {
+        const s = Engine.state;
+        const currentMonth = s.year * 12 + s.month;
+        const onMission = !!d.mission;
+        const missionData = onMission ? DATA.DISCIPLE_MISSIONS.find(m => m.id === d.mission) : null;
+        const monthsLeft = onMission ? Math.max(0, d.missionEndsAt - currentMonth) : 0;
+        const expNeeded = d.level * 30;
+        const pct = Math.min(100, Math.round(d.exp / expNeeded * 100));
+
+        return `
+          <div style="padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:2px;margin-bottom:8px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <span style="font-size:20px;">${d.icon}</span>
+              <div style="flex:1;">
+                <div style="font-size:13px;color:var(--gold-light);">${d.name} <span style="font-size:10px;color:var(--text-muted);">Lv.${d.level} · ${talentMap[d.talent]||d.talent}天赋</span></div>
+                <div style="height:4px;background:rgba(255,255,255,0.08);border-radius:2px;margin-top:4px;">
+                  <div style="height:100%;width:${pct}%;background:var(--blue-light);border-radius:2px;"></div>
+                </div>
+                <div style="font-size:9px;color:var(--text-muted);margin-top:2px;">修炼进度 ${d.exp}/${expNeeded}</div>
+              </div>
+              ${onMission ? `<span style="font-size:10px;color:var(--gold);border:1px solid var(--gold);padding:1px 6px;border-radius:8px;">执行中(${monthsLeft}月)</span>` : ''}
+            </div>
+            ${onMission ? `<div style="font-size:10px;color:var(--text-dim);">正在执行：【${missionData?.name||'任务'}】</div>` : `
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button onclick="UI.openTeachModal(${idx})" style="padding:4px 10px;border:1px solid var(--green);color:var(--green-light);background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;">传授武功</button>
+                <button onclick="UI.openMissionModal(${idx})" style="padding:4px 10px;border:1px solid var(--blue);color:var(--blue-light);background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:10px;">派遣任务</button>
+              </div>`}
+          </div>`;
+      }).join('');
+    }
+
+    // 可招募弟子
+    if (available.length > 0) {
+      html += `<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;">`;
+      html += `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">可招募弟子：</div>`;
+      html += available.map(tpl => {
+        const reqStr = Object.entries(tpl.require || {}).map(([k,v])=>`${Engine._statName(k)}≥${v}`).join('，') || '无';
+        const costStr = tpl.recruitCost.gold > 0 ? `${tpl.recruitCost.gold}两` : '免费';
+        return `
+          <div style="padding:8px;background:var(--bg-card);border:1px solid var(--border);border-radius:2px;margin-bottom:6px;display:flex;align-items:center;gap:8px;">
+            <span style="font-size:20px;">${tpl.icon}</span>
+            <div style="flex:1;">
+              <div style="font-size:12px;color:var(--gold-light);">${tpl.name} <span style="font-size:10px;color:var(--text-muted);">${talentMap[tpl.talent]}天赋</span></div>
+              <div style="font-size:10px;color:var(--text-dim);">${tpl.desc}</div>
+              <div style="font-size:9px;color:var(--text-muted);">条件：${reqStr} · 费用：${costStr}</div>
+            </div>
+            <button onclick="UI.recruitDisciple('${tpl.id}')" style="padding:5px 10px;border:1px solid var(--gold);color:var(--gold-light);background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:11px;">收徒</button>
+          </div>`;
+      }).join('');
+      html += `</div>`;
+    } else if (disciples.length === 0) {
+      html += '<div style="font-size:11px;color:var(--text-muted);padding:20px 0;text-align:center;">尚无可招募的弟子，提升声望或道德后再来。</div>';
+    }
+
+    container.innerHTML = html;
+  },
+
+  recruitDisciple(templateId) {
+    const result = Engine.recruitDisciple(templateId);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.toast(`🎓 ${result.disciple.name}拜入门下！`);
+    this.render();
+  },
+
+  openTeachModal(discipleIdx) {
+    const s = Engine.state;
+    const disciple = s.disciples[discipleIdx];
+    if (!disciple) return;
+    const myMartials = Engine.getMartialDetails();
+    if (myMartials.length === 0) { this.toast('你尚未习得任何武功'); return; }
+
+    const html = `
+      <div class="modal-overlay" id="teach-modal" style="display:flex;">
+        <div class="modal-box">
+          <div class="modal-title">📖 传授武功给 ${disciple.name}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">消耗20体力，弟子获得20修炼经验</div>
+          <div style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;">
+            ${myMartials.map(ma => `
+              <button onclick="UI.teachDisciple(${discipleIdx},'${ma.id}')" style="
+                padding:8px;border:1px solid var(--border);color:var(--text);background:none;
+                border-radius:2px;cursor:pointer;font-family:inherit;font-size:11px;text-align:left;">
+                <span style="color:var(--gold-light);">${ma.name}</span>
+                <span style="color:var(--text-muted);font-size:10px;margin-left:8px;">「${ma.levelName}」Lv.${ma.level}</span>
+              </button>`).join('')}
+          </div>
+          <button onclick="document.getElementById('teach-modal').remove()" style="margin-top:10px;padding:6px 16px;border:1px solid var(--border);color:var(--text-muted);background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:11px;">取消</button>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  },
+
+  teachDisciple(discipleIdx, martialId) {
+    const modal = document.getElementById('teach-modal');
+    if (modal) modal.remove();
+    const result = Engine.teachDisciple(discipleIdx, martialId);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.toast(`📖 传授【${result.martial.name}】成功！`);
+    this.render();
+  },
+
+  openMissionModal(discipleIdx) {
+    const s = Engine.state;
+    const disciple = s.disciples[discipleIdx];
+    if (!disciple) return;
+
+    const html = `
+      <div class="modal-overlay" id="mission-modal" style="display:flex;">
+        <div class="modal-box">
+          <div class="modal-title">🗺️ 派遣 ${disciple.name} 执行任务</div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px;">
+            ${DATA.DISCIPLE_MISSIONS.map(m => {
+              const riskColor = m.risk < 0.15 ? 'var(--green-light)' : m.risk < 0.3 ? 'var(--gold)' : 'var(--red-light)';
+              const rewardStr = Object.entries(m.reward).filter(([k])=>k!=='items').map(([k,v])=>`${Engine._statName(k)}+${v}`).join('，');
+              return `
+                <button onclick="UI.sendOnMission(${discipleIdx},'${m.id}')" style="
+                  padding:8px;border:1px solid var(--border);color:var(--text);background:none;
+                  border-radius:2px;cursor:pointer;font-family:inherit;font-size:11px;text-align:left;">
+                  <div style="display:flex;justify-content:space-between;">
+                    <span style="color:var(--gold-light);">${m.name}</span>
+                    <span style="color:var(--text-muted);font-size:10px;">${m.duration}个月</span>
+                  </div>
+                  <div style="font-size:10px;color:var(--text-dim);margin-top:2px;">${rewardStr}</div>
+                  <div style="font-size:9px;color:${riskColor};margin-top:1px;">风险：${Math.round(m.risk*100)}%</div>
+                </button>`;
+            }).join('')}
+          </div>
+          <button onclick="document.getElementById('mission-modal').remove()" style="margin-top:10px;padding:6px 16px;border:1px solid var(--border);color:var(--text-muted);background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:11px;">取消</button>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  },
+
+  sendOnMission(discipleIdx, missionId) {
+    const modal = document.getElementById('mission-modal');
+    if (modal) modal.remove();
+    const result = Engine.sendDiscipleOnMission(discipleIdx, missionId);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.toast(`🗺️ ${result.disciple.name}出发了！`);
+    this.render();
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  E: 武林排行榜 UI
+  // ════════════════════════════════════════════════════════════
+
+  renderRanking() {
+    const container = document.getElementById('ranking-panel');
+    if (!container) return;
+    const { list, myPower, playerRank } = Engine.getRankingList();
+    const alignColor = { good:'var(--green-light)', evil:'var(--red-light)', neutral:'var(--text-dim)' };
+
+    let html = `
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">天下武林排行榜 · 你的战力：<span style="color:var(--gold);">${myPower}</span></div>
+      <div style="padding:8px;background:rgba(255,200,0,0.08);border:1px solid var(--gold);border-radius:2px;margin-bottom:10px;font-size:12px;color:var(--gold);">
+        你当前排名：第 ${playerRank <= list.length ? playerRank : '榜外'} 位
+      </div>`;
+
+    html += list.map(entry => {
+      const col = alignColor[entry.align] || 'var(--text-dim)';
+      const canChallenge = !entry.defeated && myPower > entry.power * 0.3;
+      return `
+        <div style="padding:8px;background:var(--bg-card);border:1px solid ${entry.defeated?'var(--green)':'var(--border)'};border-radius:2px;margin-bottom:6px;display:flex;align-items:center;gap:8px;">
+          <div style="font-size:16px;color:var(--gold);font-weight:bold;min-width:24px;text-align:center;">${entry.rank}</div>
+          <div style="flex:1;">
+            <div style="font-size:12px;color:var(--gold-light);">${entry.name} <span style="font-size:10px;color:${col};">「${entry.title}」</span> ${entry.defeated?'<span style="font-size:9px;color:var(--green);border:1px solid var(--green);padding:0 4px;border-radius:8px;">已击败</span>':''}</div>
+            <div style="font-size:10px;color:var(--text-dim);">${entry.desc}</div>
+            <div style="font-size:10px;color:var(--text-muted);">战力：${entry.power}</div>
+          </div>
+          ${!entry.defeated && entry.npcId !== null ? `
+            <button onclick="UI.challengeRanking(${entry.rank})" style="
+              padding:5px 10px;border:1px solid ${canChallenge?'var(--red-light)':'var(--border)'};
+              color:${canChallenge?'var(--red-light)':'var(--text-muted)'};
+              background:none;border-radius:2px;cursor:${canChallenge?'pointer':'not-allowed'};
+              font-family:inherit;font-size:10px;opacity:${canChallenge?1:0.5};"
+              ${canChallenge?'':'disabled'}>挑战</button>` : ''}
+        </div>`;
+    }).join('');
+
+    html += `<div style="margin-top:10px;font-size:10px;color:var(--text-muted);">已击败：${Engine.state.rankingDefeated.length}/${list.length} 人</div>`;
+    container.innerHTML = html;
+  },
+
+  challengeRanking(rank) {
+    const result = Engine.challengeRanking(rank);
+    if (!result.success) { this.toast(result.msg); return; }
+    if (result.won) {
+      this.toast(`⚔️ 击败第${rank}名！`);
+    } else {
+      this.toast(`💔 挑战失败，继续努力！`);
+    }
+    this.render();
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  A: 扩展结局 UI
+  // ════════════════════════════════════════════════════════════
+
+  showExtraEnding(ending) {
+    const tierColor = { rare:'var(--blue-light)', epic:'var(--gold)', legendary:'var(--purple)' };
+    const tierName = { rare:'稀有', epic:'史诗', legendary:'传奇' };
+    const col = tierColor[ending.tier] || 'var(--gold)';
+    const html = `
+      <div class="modal-overlay" id="extra-ending-modal" style="display:flex;z-index:9999;">
+        <div class="modal-box" style="border-color:${col};max-width:480px;">
+          <div style="text-align:center;margin-bottom:16px;">
+            <div style="font-size:40px;margin-bottom:8px;">${ending.icon}</div>
+            <div style="font-size:20px;color:${col};font-weight:bold;">「${ending.name}」</div>
+            <div style="font-size:11px;color:${col};border:1px solid ${col};display:inline-block;padding:1px 8px;border-radius:8px;margin-top:4px;">${tierName[ending.tier]||''}结局</div>
+          </div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.8;margin-bottom:12px;">${ending.desc}</div>
+          <div style="font-size:11px;color:var(--text-muted);font-style:italic;border-top:1px solid var(--border);padding-top:10px;">${ending.epilogue}</div>
+          <button onclick="document.getElementById('extra-ending-modal').remove()" style="margin-top:16px;width:100%;padding:10px;border:1px solid ${col};color:${col};background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:13px;">继续江湖之路</button>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
   },
 
   // ── 辅助：bonus字符串 ─────────────────────────────────────

@@ -78,6 +78,22 @@ const Engine = {
       // M: 武功修炼经验
       martialExp: {},       // {martialId: exp值}
 
+      // B: 武林大会
+      tournamentWins: 0,        // 大会胜场数
+      nextTournamentMonth: 0,   // 下次大会的月份（year*12+month）
+      tournamentHistory: [],    // [{year, month, result, round}]
+
+      // C: 奇遇系统
+      locationVisits: {},       // {locationId: visitCount}
+      triggeredHiddenEvents: [], // 已触发的奇遇id
+
+      // D: 弟子培养
+      disciples: [],            // [{templateId, name, level, exp, stats, mission, missionEndsAt}]
+
+      // E: 武林排行榜
+      rankingDefeated: [],      // 已击败的排行榜人物rank
+      playerRank: null,         // 玩家当前排名（null=未上榜）
+
       // 日志
       log: [],
       eventHistory: [],
@@ -122,6 +138,8 @@ const Engine = {
     this._refreshRumors();
     // 设置初始季节
     this._updateSeason();
+    // 设置首届武林大会时间（第2年1月）
+    base.nextTournamentMonth = DATA.TOURNAMENT.firstYear * 12 + 1;
     return base;
   },
 
@@ -206,9 +224,16 @@ const Engine = {
       if (s.reputation > 50 && s.month % 6 === 0) {
         this._applyFactionTrigger('high_reputation');
       }
+      // B: 检查武林大会
+      this._checkTournamentAnnounce();
+      // C: 检查奇遇触发
+      this._checkHiddenEvents();
+      // D: 结算弟子任务
+      this._tickDiscipleMissions();
     }
-    // 检查称号
+    // 检查称号（含新结局）
     this._checkTitles();
+    this._checkExtraEndings();
   },
 
   // ── 门派月度收益 ─────────────────────────────────────────
@@ -793,6 +818,8 @@ const Engine = {
 
     s.gold -= travelCost.gold;
     s.location = locationId;
+    // C: 记录地点访问次数
+    this._recordLocationVisit(locationId);
     this.advanceTime(travelCost.time);
 
     this.addLog(`你前往了【${loc.name}】。${loc.desc}`, 'story');
@@ -1748,6 +1775,507 @@ const Engine = {
       this.addLog(`${moveDesc}。你不敌${npc.name}，败退而走，损失气血${hpLoss}点。`, 'danger');
       return { success:true, won:false, hpLoss, moveDesc, counterMult };
     }
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  A: 结局扩展系统
+  // ════════════════════════════════════════════════════════════
+
+  _checkExtraEndings() {
+    const s = this.state;
+    if (s.ending) return; // 已触发结局
+
+    for (const ending of DATA.ENDINGS_EXTRA) {
+      if (s.triggeredEnding === ending.id) continue;
+      const cond = ending.condition;
+      let met = true;
+
+      for (const [k, v] of Object.entries(cond)) {
+        if (k === 'questDone') {
+          if (!s.completedQuests.includes(v)) { met = false; break; }
+        } else if (k.startsWith('factionAttitude_')) {
+          const fid = k.replace('factionAttitude_', '');
+          const att = s.factionAttitude[fid] || 0;
+          if (att < v) { met = false; break; }
+        } else if (k === 'martialArtsCount') {
+          if (s.martialArts.length < v) { met = false; break; }
+        } else if (k === 'discipleCount') {
+          if ((s.disciples || []).length < v) { met = false; break; }
+        } else if (k === 'tournamentWins') {
+          if ((s.tournamentWins || 0) < v) { met = false; break; }
+        } else {
+          if ((s[k] || 0) < v) { met = false; break; }
+        }
+      }
+
+      if (met) {
+        s.triggeredEnding = ending.id;
+        s.ending = ending;
+        this.addLog(`🎭 【${ending.icon}${ending.name}】结局已解锁！`, 'story');
+        return;
+      }
+    }
+  },
+
+  getExtraEndings() {
+    return DATA.ENDINGS_EXTRA;
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  B: 武林大会系统
+  // ════════════════════════════════════════════════════════════
+
+  _checkTournamentAnnounce() {
+    const s = this.state;
+    const currentMonth = s.year * 12 + s.month;
+    if (!s.nextTournamentMonth) return;
+
+    // 提前1个月预告
+    if (currentMonth === s.nextTournamentMonth - 1) {
+      const loc = DATA.TOURNAMENT.locations[Math.floor(Math.random() * DATA.TOURNAMENT.locations.length)];
+      s._tournamentLocation = loc;
+      this.addLog(`📣 江湖消息：下月将在${loc}举办武林大会！参赛、观战或搅局，皆可前往。`, 'story');
+    }
+    // 大会当月
+    if (currentMonth === s.nextTournamentMonth) {
+      s._tournamentActive = true;
+      s._tournamentLocation = s._tournamentLocation || DATA.TOURNAMENT.locations[0];
+      this.addLog(`🏆 武林大会今日在${s._tournamentLocation}开幕！前往行动面板参与。`, 'story');
+    }
+  },
+
+  isTournamentActive() {
+    return !!this.state._tournamentActive;
+  },
+
+  getTournamentLocation() {
+    return this.state._tournamentLocation || '';
+  },
+
+  // 参赛
+  joinTournament() {
+    const s = this.state;
+    if (!s._tournamentActive) return { success: false, msg: '当前没有武林大会' };
+    if (s.energy < 30) return { success: false, msg: '体力不足（需要30）' };
+
+    s.energy -= 30;
+    const power = this._calcCombatPower();
+    const rounds = DATA.TOURNAMENT.rounds;
+    let lastRound = null;
+    let totalGold = 0, totalRep = 0, totalExp = 0;
+    let won = false;
+
+    for (const round of rounds) {
+      const difficulty = round.powerReq;
+      const winChance = Math.min(0.9, Math.max(0.1, (power - difficulty) / (difficulty + 50) + 0.5));
+      if (Math.random() < winChance) {
+        lastRound = round;
+        totalGold += round.reward.gold || 0;
+        totalRep += round.reward.reputation || 0;
+        totalExp += round.reward.exp || 0;
+        if (round.reward.title) {
+          if (!s.titles.includes(round.reward.title)) s.titles.push(round.reward.title);
+        }
+        won = true;
+      } else {
+        // 败于此轮
+        this.addLog(`⚔️ 武林大会：你在${round.name}中落败，但积累了宝贵经验。`, 'danger');
+        this._gainExp(Math.floor(totalExp * 0.5 + 20));
+        s.gold += Math.floor(totalGold * 0.5);
+        s.reputation += Math.floor(totalRep * 0.5);
+        s._tournamentActive = false;
+        s.nextTournamentMonth += DATA.TOURNAMENT.intervalMonths;
+        s.tournamentHistory.push({ year: s.year, month: s.month, result: 'lose', round: round.name });
+        this.advanceTime(1);
+        return { success: true, won: false, round: round.name };
+      }
+    }
+
+    // 全胜！
+    s.gold += totalGold;
+    s.reputation += totalRep;
+    this._gainExp(totalExp);
+    s.tournamentWins++;
+    s._tournamentActive = false;
+    s.nextTournamentMonth += DATA.TOURNAMENT.intervalMonths;
+    s.tournamentHistory.push({ year: s.year, month: s.month, result: 'win', round: '决赛' });
+    this.addLog(`🏆 恭喜！你在武林大会上力压群雄，荣获冠军！获得${totalGold}两、声望+${totalRep}！`, 'success');
+    this._applyFactionTrigger('high_reputation');
+    this.advanceTime(1);
+    return { success: true, won: true, gold: totalGold, reputation: totalRep };
+  },
+
+  // 观战
+  watchTournament() {
+    const s = this.state;
+    if (!s._tournamentActive) return { success: false, msg: '当前没有武林大会' };
+    if (s.energy < 10) return { success: false, msg: '体力不足（需要10）' };
+
+    s.energy -= 10;
+    const reward = DATA.TOURNAMENT.watchReward;
+    s.perception += reward.perception || 0;
+    this._gainExp(reward.exp || 0);
+    s._tournamentActive = false;
+    s.nextTournamentMonth += DATA.TOURNAMENT.intervalMonths;
+    this.addLog(`👁️ 你在武林大会上观战，从高手对决中有所感悟。悟性+${reward.perception}，经验+${reward.exp}。`, 'info');
+    this.advanceTime(1);
+    return { success: true, ...reward };
+  },
+
+  // 搅局
+  sabotageTournament() {
+    const s = this.state;
+    if (!s._tournamentActive) return { success: false, msg: '当前没有武林大会' };
+    if (s.energy < 20) return { success: false, msg: '体力不足（需要20）' };
+
+    s.energy -= 20;
+    const reward = DATA.TOURNAMENT.sabotageReward;
+    const success = Math.random() < 0.6;
+    if (success) {
+      s.gold += reward.gold;
+      s.evil += reward.evil;
+      s.reputation += reward.reputation;
+      s._tournamentActive = false;
+      s.nextTournamentMonth += DATA.TOURNAMENT.intervalMonths;
+      this._applyFactionTrigger('kill_good_npc');
+      this.addLog(`🗡️ 你趁乱搅局，浑水摸鱼，获得${reward.gold}两。但声望有所下降，邪气+${reward.evil}。`, 'danger');
+    } else {
+      const hpLoss = 25;
+      s.hp = Math.max(1, s.hp - hpLoss);
+      s.reputation -= 20;
+      this.addLog(`💥 搅局失败！被众高手围攻，损失气血${hpLoss}点，声望大跌。`, 'danger');
+    }
+    this.advanceTime(1);
+    return { success: true, sabotageSuccess: success };
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  C: 奇遇系统
+  // ════════════════════════════════════════════════════════════
+
+  _checkHiddenEvents() {
+    const s = this.state;
+    const locId = s.location;
+
+    DATA.HIDDEN_EVENTS.forEach(he => {
+      if (s.triggeredHiddenEvents.includes(he.id)) return;
+      const trig = he.trigger;
+      if (trig.location && trig.location !== locId) return;
+
+      const visits = s.locationVisits[locId] || 0;
+      if (visits < (trig.minVisits || 0)) return;
+
+      // 检查前置条件
+      if (trig.require) {
+        for (const [k, v] of Object.entries(trig.require)) {
+          if (k.startsWith('factionAttitude_')) {
+            const fid = k.replace('factionAttitude_', '');
+            if ((s.factionAttitude[fid] || 0) < v) return;
+          } else if ((s[k] || 0) < v) return;
+        }
+      }
+
+      if (Math.random() < (trig.chance || 0.2)) {
+        // 触发奇遇！存入待处理
+        s._pendingHiddenEvent = he.id;
+        this.addLog(`✨ 【${he.icon}${he.name}】你遭遇了一段奇遇！`, 'story');
+      }
+    });
+  },
+
+  getPendingHiddenEvent() {
+    const s = this.state;
+    if (!s._pendingHiddenEvent) return null;
+    return DATA.HIDDEN_EVENTS.find(he => he.id === s._pendingHiddenEvent) || null;
+  },
+
+  resolveHiddenEvent(eventId, choiceIdx) {
+    const s = this.state;
+    const he = DATA.HIDDEN_EVENTS.find(e => e.id === eventId);
+    if (!he) return { success: false };
+
+    const choice = he.choices[choiceIdx];
+    if (!choice) return { success: false };
+
+    // 检查选项条件
+    for (const [k, v] of Object.entries(choice.require || {})) {
+      if ((s[k] || 0) < v) return { success: false, msg: `需要${this._statName(k)}达到${v}` };
+    }
+
+    const result = choice.result;
+    const msgs = [result.desc];
+
+    switch (result.type) {
+      case 'martial_secret': {
+        const tier = result.martialTier || 3;
+        const unlearned = DATA.MARTIAL_ARTS.filter(m =>
+          !s.martialArts.find(x => x.id === m.id) && m.tier <= tier
+        );
+        if (unlearned.length > 0) {
+          const ma = unlearned[Math.floor(Math.random() * unlearned.length)];
+          s.martialArts.push({ id: ma.id, level: 1, exp: 0 });
+          this._applyBonus(s, ma.effect);
+          msgs.push(`习得【${ma.name}】！`);
+        }
+        break;
+      }
+      case 'npc_favor': {
+        if (result.npcId) {
+          s.npcFavor[result.npcId] = Math.min(100, (s.npcFavor[result.npcId] || 0) + (result.bonus || 20));
+        }
+        break;
+      }
+      case 'inner_boost': {
+        s.innerPower += result.amount || 30;
+        msgs.push(`内力+${result.amount}`);
+        break;
+      }
+      case 'train_bonus': {
+        this._applyBonus(s, result.bonus);
+        const bonusStr = Object.entries(result.bonus).map(([k, v]) => `${this._statName(k)}+${v}`).join('，');
+        msgs.push(bonusStr);
+        break;
+      }
+      case 'faction_favor': {
+        const cur = s.factionAttitude[result.faction] || 0;
+        s.factionAttitude[result.faction] = Math.min(100, cur + (result.delta || 10));
+        break;
+      }
+      case 'steal_martial': {
+        s.morality = Math.max(0, s.morality + (result.morality || -20));
+        s.evil += result.evil || 10;
+        const unlearned = DATA.MARTIAL_ARTS.filter(m => !s.martialArts.find(x => x.id === m.id));
+        if (unlearned.length > 0) {
+          const ma = unlearned[Math.floor(Math.random() * unlearned.length)];
+          s.martialArts.push({ id: ma.id, level: 1, exp: 0 });
+          msgs.push(`偷得【${ma.name}】`);
+        }
+        break;
+      }
+      case 'weapon_special': {
+        if (result.weaponId && !s.weapons.includes(result.weaponId)) {
+          s.weapons.push(result.weaponId);
+          const w = DATA.WEAPONS.find(x => x.id === result.weaponId);
+          if (w) msgs.push(`获得【${w.name}】`);
+        }
+        break;
+      }
+      case 'nothing':
+      default:
+        break;
+    }
+
+    s.triggeredHiddenEvents.push(eventId);
+    s._pendingHiddenEvent = null;
+    const text = msgs.join('，');
+    this.addLog(`【${he.name}】${text}`, 'success');
+    this._checkTitles();
+    return { success: true, he, choice, msgs };
+  },
+
+  // 记录地点访问次数（在travel时调用）
+  _recordLocationVisit(locId) {
+    const s = this.state;
+    s.locationVisits[locId] = (s.locationVisits[locId] || 0) + 1;
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  D: 弟子培养系统
+  // ════════════════════════════════════════════════════════════
+
+  getAvailableDisciples() {
+    const s = this.state;
+    return DATA.DISCIPLE_TEMPLATES.filter(tpl => {
+      // 未收录
+      if (s.disciples.find(d => d.templateId === tpl.id)) return false;
+      // 检查条件
+      for (const [k, v] of Object.entries(tpl.require || {})) {
+        if ((s[k] || 0) < v) return false;
+      }
+      return true;
+    });
+  },
+
+  recruitDisciple(templateId) {
+    const s = this.state;
+    const tpl = DATA.DISCIPLE_TEMPLATES.find(t => t.id === templateId);
+    if (!tpl) return { success: false, msg: '弟子不存在' };
+    if (s.disciples.find(d => d.templateId === templateId)) return { success: false, msg: '已收录此弟子' };
+    if (s.disciples.length >= 4) return { success: false, msg: '弟子已满（最多4名）' };
+
+    // 检查条件
+    for (const [k, v] of Object.entries(tpl.require || {})) {
+      if ((s[k] || 0) < v) return { success: false, msg: `需要${this._statName(k)}达到${v}` };
+    }
+    const cost = tpl.recruitCost || {};
+    if (cost.gold && s.gold < cost.gold) return { success: false, msg: `需要${cost.gold}两银子` };
+    if (cost.energy && s.energy < cost.energy) return { success: false, msg: '体力不足' };
+
+    if (cost.gold) s.gold -= cost.gold;
+    if (cost.energy) s.energy -= cost.energy;
+
+    const disciple = {
+      templateId,
+      name: tpl.name,
+      icon: tpl.icon,
+      talent: tpl.talent,
+      level: 1,
+      exp: 0,
+      stats: { ...tpl.baseStats },
+      mission: null,
+      missionEndsAt: null,
+    };
+    s.disciples.push(disciple);
+    this.addLog(`🎓 ${tpl.icon}${tpl.name}拜入门下，成为你的弟子！`, 'success');
+    this.advanceTime(1);
+    return { success: true, disciple: tpl };
+  },
+
+  // 传授武功给弟子
+  teachDisciple(discipleIdx, martialId) {
+    const s = this.state;
+    const disciple = s.disciples[discipleIdx];
+    if (!disciple) return { success: false, msg: '弟子不存在' };
+    if (s.energy < 20) return { success: false, msg: '体力不足（需要20）' };
+
+    const ma = DATA.MARTIAL_ARTS.find(m => m.id === martialId);
+    if (!ma) return { success: false, msg: '武功不存在' };
+    if (!s.martialArts.find(m => m.id === martialId)) return { success: false, msg: '你尚未习得此武功' };
+
+    s.energy -= 20;
+    disciple.exp = (disciple.exp || 0) + 20;
+    // 弟子升级
+    if (disciple.exp >= disciple.level * 30) {
+      disciple.level++;
+      // 根据天赋提升属性
+      const talentBonus = { sword: { swordSkill: 8 }, inner: { innerPower: 10 }, palm: { strength: 8 },
+                            qinggong: { agility: 10 }, hidden: { speed: 8 }, evil: { innerPower: 8 } };
+      const bonus = talentBonus[disciple.talent] || { strength: 5 };
+      Object.entries(bonus).forEach(([k, v]) => { disciple.stats[k] = (disciple.stats[k] || 0) + v; });
+      this.addLog(`🌟 弟子${disciple.name}修炼有成，升至第${disciple.level}层！`, 'success');
+    }
+    this.addLog(`📖 你向${disciple.name}传授【${ma.name}】，弟子受益匪浅。`, 'info');
+    this.advanceTime(1);
+    return { success: true, disciple, martial: ma };
+  },
+
+  // 派遣弟子执行任务
+  sendDiscipleOnMission(discipleIdx, missionId) {
+    const s = this.state;
+    const disciple = s.disciples[discipleIdx];
+    if (!disciple) return { success: false, msg: '弟子不存在' };
+    if (disciple.mission) return { success: false, msg: `${disciple.name}正在执行任务` };
+
+    const mission = DATA.DISCIPLE_MISSIONS.find(m => m.id === missionId);
+    if (!mission) return { success: false, msg: '任务不存在' };
+
+    const currentMonth = s.year * 12 + s.month;
+    disciple.mission = missionId;
+    disciple.missionEndsAt = currentMonth + mission.duration;
+    this.addLog(`🗺️ ${disciple.name}出发执行【${mission.name}】，预计${mission.duration}个月后归来。`, 'info');
+    return { success: true, disciple, mission };
+  },
+
+  // 每月结算弟子任务
+  _tickDiscipleMissions() {
+    const s = this.state;
+    const currentMonth = s.year * 12 + s.month;
+    s.disciples.forEach(disciple => {
+      if (!disciple.mission || !disciple.missionEndsAt) return;
+      if (currentMonth < disciple.missionEndsAt) return;
+
+      const mission = DATA.DISCIPLE_MISSIONS.find(m => m.id === disciple.mission);
+      disciple.mission = null;
+      disciple.missionEndsAt = null;
+      if (!mission) return;
+
+      // 判断成功/失败
+      const successRate = 1 - mission.risk * (1 - disciple.level * 0.1);
+      if (Math.random() < successRate) {
+        const reward = mission.reward;
+        if (reward.gold) s.gold += reward.gold;
+        if (reward.reputation) s.reputation += reward.reputation;
+        if (reward.exp) disciple.exp += reward.exp;
+        if (reward.items) reward.items.forEach(id => this.addItem(id, 1));
+        this.addLog(`✅ ${disciple.name}完成了【${mission.name}】，带回了丰厚收获！`, 'success');
+      } else {
+        const hpLoss = Math.floor(Math.random() * 20) + 10;
+        this.addLog(`⚠️ ${disciple.name}执行【${mission.name}】时遭遇意外，受了些伤，空手而归。`, 'danger');
+      }
+    });
+  },
+
+  getDisciples() {
+    return this.state.disciples || [];
+  },
+
+  // ════════════════════════════════════════════════════════════
+  //  E: 武林排行榜系统
+  // ════════════════════════════════════════════════════════════
+
+  getRankingList() {
+    const s = this.state;
+    // 计算玩家战力，动态插入排行
+    const myPower = this._calcCombatPower();
+    const list = DATA.RANKING_LIST.map(r => ({
+      ...r,
+      defeated: s.rankingDefeated.includes(r.rank),
+    }));
+
+    // 玩家排名
+    let playerRank = list.length + 1;
+    for (let i = 0; i < list.length; i++) {
+      if (myPower >= list[i].power) { playerRank = list[i].rank; break; }
+    }
+    s.playerRank = playerRank;
+
+    return { list, myPower, playerRank };
+  },
+
+  challengeRanking(rank) {
+    const s = this.state;
+    const entry = DATA.RANKING_LIST.find(r => r.rank === rank);
+    if (!entry) return { success: false, msg: '排行榜人物不存在' };
+    if (s.rankingDefeated.includes(rank)) return { success: false, msg: '你已击败过此人' };
+    if (s.energy < 40) return { success: false, msg: '体力不足（需要40）' };
+
+    s.energy -= 40;
+    const myPower = this._calcCombatPower();
+    const winChance = Math.min(0.85, Math.max(0.05, myPower / (entry.power + myPower)));
+    const won = Math.random() < winChance;
+
+    const reward = DATA.RANKING_CHALLENGE_REWARD;
+    if (won) {
+      s.gold += reward.win.gold;
+      s.reputation += reward.win.reputation;
+      this._gainExp(reward.win.exp);
+      s.rankingDefeated.push(rank);
+      s.battlesWon++;
+
+      // 前三名特殊奖励
+      if (rank <= 3) {
+        s.reputation += reward.topThreeBonus.reputation;
+        if (!s.titles.includes(reward.topThreeBonus.title)) {
+          s.titles.push(reward.topThreeBonus.title);
+        }
+        this.addLog(`🌟 你击败了排行第${rank}的${entry.name}（${entry.title}）！天下震动！`, 'success');
+      } else {
+        this.addLog(`⚔️ 你击败了排行第${rank}的${entry.name}！声望大涨！`, 'success');
+      }
+      // 更新玩家排名
+      s.playerRank = rank;
+      this._checkTitles();
+    } else {
+      s.reputation += reward.lose.reputation;
+      this._gainExp(reward.lose.exp);
+      const hpLoss = Math.floor(entry.power * 0.15);
+      s.hp = Math.max(1, s.hp - hpLoss);
+      s.battlesLost++;
+      this.addLog(`💔 你挑战${entry.name}失败，损失气血${hpLoss}点，但积累了宝贵经验。`, 'danger');
+    }
+
+    this.advanceTime(1);
+    return { success: true, won, entry, winChance };
   },
 
   // ── 保存/读取 ─────────────────────────────────────────────

@@ -322,8 +322,30 @@ const Engine = {
         Object.keys(gains).forEach(k => { s[k] = (s[k]||0) + gains[k]; });
         this.advanceTime(1);
         const gainStr = Object.entries(gains).map(([k,v])=>`${this._statName(k)}+${v}`).join('，');
+
+        // 顿悟机制：悟性越高，概率越大（最高15%）
+        const enlightenChance = Math.min(0.15, 0.02 + s.perception * 0.001);
+        let enlightened = false;
+        let enlightenBonus = null;
+        if (Math.random() < enlightenChance) {
+          enlightened = true;
+          // 顿悟：随机大幅提升一项核心属性
+          const bonusOptions = [
+            { key: 'innerPower', label: '内力', val: 10 + Math.floor(Math.random() * 15) },
+            { key: 'swordSkill', label: '剑术', val: 8 + Math.floor(Math.random() * 12) },
+            { key: 'strength', label: '力量', val: 6 + Math.floor(Math.random() * 10) },
+            { key: 'agility', label: '身法', val: 6 + Math.floor(Math.random() * 10) },
+            { key: 'perception', label: '悟性', val: 5 + Math.floor(Math.random() * 8) },
+          ];
+          enlightenBonus = bonusOptions[Math.floor(Math.random() * bonusOptions.length)];
+          s[enlightenBonus.key] = (s[enlightenBonus.key] || 0) + enlightenBonus.val;
+          // 顿悟时给所有武功额外加经验
+          s.martialArts.forEach(entry => this._addMartialExp(entry.id, 3));
+          this.addLog(`💡 修炼中忽有所悟，灵台清明！${enlightenBonus.label}大幅提升+${enlightenBonus.val}！`, 'success');
+        }
+
         this.addLog(`你刻苦修炼一个月，${gainStr}。`, 'success');
-        results.push({ type:'train', gains });
+        results.push({ type:'train', gains, enlightened, enlightenBonus });
         break;
       }
 
@@ -1220,6 +1242,66 @@ const Engine = {
     const available = DATA.WEAPONS.filter(w => !s.weapons.includes(w.id) && w.tier <= 3);
     if (available.length === 0) return null;
     return available[Math.floor(Math.random() * available.length)];
+  },
+
+  // ── 生成行动叙事文本 ─────────────────────────────────────
+  generateActionNarrative(actionId, result) {
+    const s = this.state;
+    const loc = this.getLocation();
+    const season = this.getSeason();
+    const locName = loc ? loc.name : '江湖';
+    const seasonName = season ? season.name : '春';
+
+    const narratives = {
+      rest: [
+        `${seasonName}日里，你在${locName}寻了一处僻静之所，闭目养神，任凭微风拂面。伤势渐渐好转，精神也恢复了几分。`,
+        `你在客栈中歇息了整整一个月，每日以药草调养，以内功运气，气血渐渐充盈。`,
+        `借着${seasonName}日的暖阳，你在${locName}的山间小屋中静养，听松涛阵阵，心境平和，体力大复。`,
+        `你找了处清幽之地，每日打坐调息，以内力疏通经脉，伤势恢复了不少。`,
+      ],
+      train: [
+        `${seasonName}日清晨，你在${locName}寻了处空旷之地，一遍遍演练武功，汗水湿透衣衫，却浑然不觉。`,
+        `你闭关修炼，将所学武功反复钻研，每一招每一式都力求精准，内力在体内缓缓流转，愈发深厚。`,
+        `月光下，你独自在${locName}练功，剑光如练，掌风呼啸，一月苦功终有所得。`,
+        `你以${locName}的山石为靶，日复一日地磨砺拳脚，筋骨愈发强健，内力也更加浑厚。`,
+      ],
+      wander: [
+        `你背负行囊，游历${locName}一带，途中结识了几位江湖人士，听闻了不少奇闻异事，见识大增。`,
+        `${seasonName}风送爽，你漫步于${locName}的山水之间，偶遇高人指点，悟性有所提升。`,
+        `你走遍了${locName}的大街小巷，与各色人等交谈，江湖阅历愈发丰富，声望也渐渐传开。`,
+        `一路游历，你见识了江湖的险恶与美好，心境更加豁达，武学感悟也随之加深。`,
+      ],
+      work: [
+        `你在${locName}的酒楼帮工，端茶倒水，偶尔也帮忙驱赶闹事的泼皮，赚了些辛苦钱。`,
+        `你替${locName}的商队护镖，一路平安无事，赚得了一笔报酬。`,
+        `你在${locName}做了些零散活计，虽然辛苦，但也积攒了些银两，够日后用度。`,
+        `你在${locName}的镖局挂了个临时差事，凭着一身武艺，赚了不少银两。`,
+      ],
+      explore: [
+        `你深入${locName}的险地探索，荆棘丛生，危机四伏，却也别有一番天地。`,
+        `你循着传说中的线索，在${locName}附近的山谷中探寻，不知不觉间已过了数日。`,
+        `你独自深入${locName}的秘境，遭遇了不少危险，却也有意外的收获。`,
+        `带着一腔好奇，你探索了${locName}周边的未知之地，见到了常人难以见到的景象。`,
+      ],
+      quest: [
+        `你接下了这桩差事，一路跋山涉水，历经波折，终于完成了任务，不负所托。`,
+        `任务虽然艰难，但你凭借机智与武艺，一一化解了难关，顺利完成。`,
+        `你全力以赴地完成了这次任务，虽然过程中遭遇了些许麻烦，但最终还是成功了。`,
+      ],
+      fight: [
+        `两人对峙，剑拔弩张，一场切磋就此展开，招式往来间，各有所得。`,
+        `你与对手过了数十招，拳脚相交，内力激荡，是一场难得的切磋。`,
+      ],
+      sect_contribute: [
+        `你在门派中勤勉效力，协助师兄弟们处理事务，贡献了自己的一份力量。`,
+        `你为门派奔走，完成了几件差事，赢得了师门的认可，贡献值有所提升。`,
+      ],
+    };
+
+    const list = narratives[actionId] || [
+      `你在${locName}度过了这段时光，虽无惊天动地之事，却也积累了些许经验。`,
+    ];
+    return list[Math.floor(Math.random() * list.length)];
   },
 
   // ── 属性名称映射 ─────────────────────────────────────────

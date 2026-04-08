@@ -372,7 +372,26 @@ const UI = {
       { key:'charm',      label:'魅力', max:200,       cls:'chm-fill' },
       { key:'swordSkill', label:'剑术', max:300,       cls:'swd-fill' },
     ];
-    document.getElementById('stat-bars').innerHTML = stats.map(st => {
+
+    // 战力评级
+    const power = Engine._calcCombatPower ? Engine._calcCombatPower() : 0;
+    const powerGrade = power >= 300 ? { label:'绝世高手', color:'#ff6b35' } :
+                       power >= 200 ? { label:'一流高手', color:'var(--gold)' } :
+                       power >= 120 ? { label:'二流高手', color:'var(--gold-light)' } :
+                       power >= 70  ? { label:'三流高手', color:'var(--blue-light)' } :
+                       power >= 30  ? { label:'江湖新秀', color:'var(--green-light)' } :
+                                      { label:'初出茅庐', color:'var(--text-muted)' };
+
+    const powerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;margin-bottom:6px;border-bottom:1px solid var(--border);">
+        <span style="font-size:10px;color:var(--text-muted);">综合战力</span>
+        <div style="text-align:right;">
+          <span style="font-size:14px;color:${powerGrade.color};font-weight:bold;">${power}</span>
+          <span style="font-size:9px;color:${powerGrade.color};margin-left:4px;border:1px solid ${powerGrade.color};padding:0 4px;border-radius:8px;">${powerGrade.label}</span>
+        </div>
+      </div>`;
+
+    document.getElementById('stat-bars').innerHTML = powerHTML + stats.map(st => {
       const val = s[st.key] || 0;
       const pct = Math.min(100, (val / st.max) * 100);
       return `
@@ -521,14 +540,49 @@ const UI = {
 
   renderActions() {
     const actions = Engine.getAvailableActions();
-    let html = actions.map(a => `
-      <div class="action-btn" onclick="UI.doAction('${a.id}')">
+    const s = Engine.state;
+    const season = Engine.getSeason ? Engine.getSeason() : null;
+    const seasonEff = Engine.getSeasonEffects ? Engine.getSeasonEffects() : {};
+
+    // 状态提示栏
+    const tips = [];
+    if (s.energy < 20) tips.push(`<span style="color:var(--red-light);">⚠️ 体力不足，无法修炼或探索</span>`);
+    else if (s.energy < 40) tips.push(`<span style="color:var(--gold);">⚡ 体力偏低（${s.energy}），建议先休息</span>`);
+    if (s.hp < s.maxHp * 0.3) tips.push(`<span style="color:var(--red-light);">🩸 气血危急（${s.hp}/${s.maxHp}），建议休息养伤</span>`);
+    if (season && (seasonEff.trainBonus || seasonEff.innerBonus)) {
+      const bonuses = [];
+      if (seasonEff.trainBonus) bonuses.push(`修炼+${seasonEff.trainBonus}%`);
+      if (seasonEff.innerBonus) bonuses.push(`内功+${seasonEff.innerBonus}%`);
+      tips.push(`<span style="color:var(--green-light);">${season.icon} ${season.name}季加成：${bonuses.join('，')}</span>`);
+    }
+    if (s.studyingManual) {
+      const m = (DATA.MANUALS || []).find(x => x.id === s.studyingManual.id);
+      const remaining = s.studyingManual.endMonth - (s.year * 12 + s.month);
+      tips.push(`<span style="color:var(--blue-light);">📖 正在研读【${m?.name || '秘籍'}】，还需${remaining}月</span>`);
+    }
+
+    const tipsHTML = tips.length > 0 ? `
+      <div style="grid-column:1/-1;padding:6px 8px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:2px;margin-bottom:4px;display:flex;flex-direction:column;gap:3px;">
+        ${tips.map(t => `<div style="font-size:10px;">${t}</div>`).join('')}
+      </div>` : '';
+
+    let html = tipsHTML + actions.map(a => {
+      // 判断行动是否可用
+      let disabled = false;
+      let disabledReason = '';
+      if (a.id === 'train' && s.energy < 20) { disabled = true; disabledReason = '体力不足'; }
+      if (a.id === 'explore' && s.energy < 30) { disabled = true; disabledReason = '体力不足'; }
+      if (a.id === 'work' && s.energy < 15) { disabled = true; disabledReason = '体力不足'; }
+      if (a.id === 'wander' && s.gold < 20) { disabled = true; disabledReason = '银两不足'; }
+
+      return `
+      <div class="action-btn${disabled ? ' disabled' : ''}" onclick="${disabled ? '' : `UI.doAction('${a.id}')`}" style="${disabled ? 'opacity:0.45;cursor:not-allowed;' : ''}">
         <div class="action-icon">${a.icon}</div>
         <div class="action-name">${a.name}</div>
-        <div class="action-cost">${a.cost}</div>
+        <div class="action-cost">${disabled ? `<span style="color:var(--red-light);">${disabledReason}</span>` : a.cost}</div>
         <div class="action-desc">${a.desc}</div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
 
     // B: 武林大会行动（大会期间显示）
     if (this._tournamentActive) {
@@ -854,6 +908,15 @@ const UI = {
     };
     const actionName = actionNames[actionId] || actionId;
 
+    // 生成叙事文本
+    const narrative = Engine.generateActionNarrative(actionId, result);
+
+    // 检查是否有顿悟
+    const resultArr = result.results || [];
+    const trainResult = resultArr.find(r => r.type === 'train');
+    const enlightened = trainResult && trainResult.enlightened;
+    const enlightenBonus = trainResult && trainResult.enlightenBonus;
+
     // 计算属性变化
     const statChanges = [];
     const statMap = {
@@ -881,16 +944,30 @@ const UI = {
     // 检查是否有待触发的随机事件（由游戏主循环设置的 pendingEvent）
     const hasPendingEvent = !!this.pendingEvent;
 
+    // 顿悟特效 HTML
+    const enlightenHTML = enlightened && enlightenBonus ? `
+      <div style="background:rgba(255,220,0,0.08);border:1px solid var(--gold);border-radius:2px;padding:10px;margin-bottom:10px;text-align:center;">
+        <div style="font-size:20px;margin-bottom:4px;">💡</div>
+        <div style="font-size:13px;color:var(--gold);font-weight:bold;margin-bottom:4px;">修炼顿悟！</div>
+        <div style="font-size:12px;color:var(--gold-light);">${enlightenBonus.label} 大幅提升 <span style="font-size:16px;">+${enlightenBonus.val}</span></div>
+      </div>` : '';
+
     const html = `
       <div class="modal-overlay" id="action-feedback-modal" style="display:flex;">
         <div class="modal-box" style="max-width:420px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
             <div style="font-size:18px;">📋</div>
             <div>
               <div style="font-size:14px;color:var(--gold);">本月纪要</div>
               <div style="font-size:10px;color:var(--text-muted);">【${actionName}】· 耗时${monthsPassed}个月 · 第${s.year}年${s.month}月</div>
             </div>
           </div>
+
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.7;margin-bottom:10px;padding:8px;background:rgba(255,255,255,0.02);border-left:2px solid var(--border);border-radius:0 2px 2px 0;">
+            ${narrative}
+          </div>
+
+          ${enlightenHTML}
 
           ${statChanges.length > 0 ? `
             <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:2px;padding:8px;margin-bottom:10px;">
@@ -1064,11 +1141,67 @@ const UI = {
 
   doFightWithMove(npcId, moveId) {
     document.getElementById('fight-move-modal').style.display = 'none';
+    const npc = DATA.NPCS.find(n => n.id === npcId);
     const result = Engine.fightWithMove(npcId, moveId);
     if (!result.success) { this.toast(result.msg); return; }
-    const counterTip = result.counterMult > 1.1 ? ' 🔥克制！' : result.counterMult < 0.9 ? ' ❄️被克制' : '';
-    this.toast(result.won ? `胜利！${counterTip}` : `败退…${counterTip}`);
     this.render();
+    // 弹出战斗结果弹窗
+    this._showFightResultModal(npc, result);
+  },
+
+  _showFightResultModal(npc, result) {
+    const s = Engine.state;
+    const won = result.won;
+    const counterTip = result.counterMult > 1.1 ? '<span style="color:var(--gold);">🔥 克制！威力大增！</span>' :
+                       result.counterMult < 0.9 ? '<span style="color:var(--text-muted);">❄️ 被克制，威力减弱</span>' : '';
+
+    // 生成战斗过程描述
+    const fightDesc = won
+      ? `你使出一招，${npc ? npc.name : '对手'}措手不及，节节败退，最终认输。`
+      : `你与${npc ? npc.name : '对手'}缠斗良久，终究不敌，只得败退。`;
+
+    const html = `
+      <div class="modal-overlay" id="fight-result-modal" style="display:flex;">
+        <div class="modal-box" style="max-width:380px;">
+          <div style="text-align:center;margin-bottom:14px;">
+            <div style="font-size:32px;margin-bottom:6px;">${won ? '🏆' : '💔'}</div>
+            <div style="font-size:18px;color:${won ? 'var(--gold)' : 'var(--red-light)'};font-weight:bold;">
+              ${won ? '切磋胜利！' : '切磋落败'}
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">对手：${npc ? npc.name + '（' + npc.title + '）' : '未知'}</div>
+          </div>
+
+          <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:2px;padding:10px;margin-bottom:10px;">
+            <div style="font-size:11px;color:var(--text-dim);line-height:1.7;margin-bottom:6px;">${result.moveDesc}</div>
+            ${counterTip ? `<div style="font-size:11px;margin-bottom:4px;">${counterTip}</div>` : ''}
+            <div style="font-size:11px;color:var(--text-dim);line-height:1.7;">${fightDesc}</div>
+          </div>
+
+          <div style="display:flex;gap:12px;font-size:12px;margin-bottom:12px;">
+            <div style="flex:1;text-align:center;padding:6px;background:rgba(255,80,80,0.08);border-radius:2px;">
+              <div style="color:var(--text-muted);font-size:10px;">损失气血</div>
+              <div style="color:var(--red-light);font-size:16px;">-${result.hpLoss}</div>
+            </div>
+            ${won && result.expGain ? `
+            <div style="flex:1;text-align:center;padding:6px;background:rgba(100,200,100,0.08);border-radius:2px;">
+              <div style="color:var(--text-muted);font-size:10px;">获得经验</div>
+              <div style="color:var(--green-light);font-size:16px;">+${result.expGain}</div>
+            </div>` : ''}
+            <div style="flex:1;text-align:center;padding:6px;background:rgba(255,255,255,0.03);border-radius:2px;">
+              <div style="color:var(--text-muted);font-size:10px;">当前气血</div>
+              <div style="color:var(--gold-light);font-size:16px;">${s.hp}/${s.maxHp}</div>
+            </div>
+          </div>
+
+          <button onclick="document.getElementById('fight-result-modal').remove()" style="
+            width:100%;padding:10px;border:1px solid ${won ? 'var(--gold)' : 'var(--border)'};
+            color:${won ? 'var(--gold-light)' : 'var(--text-muted)'};
+            background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
+            ${won ? '扬长而去' : '败退离开'}
+          </button>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
   },
 
   recruitNPC(npcId) {

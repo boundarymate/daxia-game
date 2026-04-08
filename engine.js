@@ -94,6 +94,25 @@ const Engine = {
       rankingDefeated: [],      // 已击败的排行榜人物rank
       playerRank: null,         // 玩家当前排名（null=未上榜）
 
+      // F: 武学秘籍
+      collectedManuals: [],     // 已收集的秘籍id列表
+      studiedManuals: [],       // 已研读完成的秘籍id列表
+      studyingManual: null,     // 正在研读的秘籍 {id, startMonth, endMonth}
+
+      // G: 事件链
+      activeChains: {},         // {chainId: {currentStep, startedAt}}
+      completedChains: [],      // 已完成的事件链id
+
+      // H: 地图扩展
+      unlockedLocations: [],    // 已解锁的额外地点id列表
+
+      // I: 武功融合
+      fusedMartials: [],        // 已融合的武功id列表
+
+      // J: 年代事件
+      triggeredEraEvents: [],   // 已触发的年代事件id列表
+      pendingEraEvent: null,    // 待处理的年代事件
+
       // 日志
       log: [],
       eventHistory: [],
@@ -230,6 +249,12 @@ const Engine = {
       this._checkHiddenEvents();
       // D: 结算弟子任务
       this._tickDiscipleMissions();
+      // F: 检查秘籍研读进度
+      this._checkManualStudy();
+      // H: 检查地点解锁
+      this.checkLocationUnlocks();
+      // J: 检查年代事件（每年1月）
+      if (s.month === 1) this._checkEraEvents();
     }
     // 检查称号（含新结局）
     this._checkTitles();
@@ -270,6 +295,8 @@ const Engine = {
   doAction(actionId, params = {}) {
     const s = this.state;
     const results = [];
+    // 记录行动前的日志长度，用于收集本次行动产生的所有日志
+    const logBefore = s.log ? s.log.length : 0;
 
     switch (actionId) {
 
@@ -428,7 +455,9 @@ const Engine = {
       }
     }
 
-    return { success:true, results };
+    // 收集本次行动产生的所有新日志
+    const newLogs = s.log ? s.log.slice(logBefore) : [];
+    return { success:true, results, newLogs };
   },
 
   // ── 修炼收益计算 ─────────────────────────────────────────
@@ -488,7 +517,8 @@ const Engine = {
   },
 
   // ── 学习武功 ─────────────────────────────────────────────
-  learnMartial(martialId, teacherId) {
+  // fromManual=true 时跳过属性检查（秘籍研读已在研读阶段验证）
+  learnMartial(martialId, teacherId, fromManual = false) {
     const s = this.state;
     const ma = DATA.MARTIAL_ARTS.find(m => m.id === martialId);
     if (!ma) return { success:false, msg:'武功不存在' };
@@ -498,11 +528,13 @@ const Engine = {
       return { success:false, msg:'你已经学过这门武功了' };
     }
 
-    // 检查前置条件
-    const req = ma.require;
-    for (const [k, v] of Object.entries(req)) {
-      if ((s[k] || 0) < v) {
-        return { success:false, msg:`需要${this._statName(k)}达到${v}，当前为${s[k]||0}` };
+    // 检查前置条件（从秘籍学习时跳过）
+    if (!fromManual) {
+      const req = ma.require;
+      for (const [k, v] of Object.entries(req)) {
+        if ((s[k] || 0) < v) {
+          return { success:false, msg:`需要${this._statName(k)}达到${v}，当前为${s[k]||0}` };
+        }
       }
     }
 
@@ -1204,7 +1236,11 @@ const Engine = {
   // ── 检查结局 ─────────────────────────────────────────────
   checkEnding() {
     const s = this.state;
+    // 已触发过的结局不重复弹出
+    if (!s.unlockedEndings) s.unlockedEndings = [];
+
     for (const ending of DATA.ENDINGS) {
+      if (s.unlockedEndings.includes(ending.id)) continue;
       const cond = ending.condition;
       let match = true;
       for (const [k, v] of Object.entries(cond)) {
@@ -1212,11 +1248,18 @@ const Engine = {
           if (s.sect !== v.sect || s.sectRank < v.rank) { match = false; break; }
         } else if (k === 'followers') {
           if (s.followers.length < v) { match = false; break; }
+        } else if (k === 'spouse') {
+          if (!s.spouse) { match = false; break; }
+        } else if (k === 'age') {
+          if ((s.age || 0) < v) { match = false; break; }
         } else {
           if ((s[k] || 0) < v) { match = false; break; }
         }
       }
-      if (match) return ending;
+      if (match) {
+        s.unlockedEndings.push(ending.id);
+        return ending;
+      }
     }
     return null;
   },
@@ -2276,6 +2319,388 @@ const Engine = {
 
     this.advanceTime(1);
     return { success: true, won, entry, winChance };
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  F: 武学秘籍系统
+  // ══════════════════════════════════════════════════════════
+
+  // 收集秘籍（加入背包）
+  collectManual(manualId) {
+    const s = this.state;
+    const manual = DATA.MANUALS.find(m => m.id === manualId);
+    if (!manual) return { success: false, msg: '未知秘籍' };
+    if (s.collectedManuals.includes(manualId)) return { success: false, msg: `你已经拥有【${manual.name}】` };
+    if (s.studiedManuals.includes(manualId)) return { success: false, msg: `你已经研读过【${manual.name}】` };
+    s.collectedManuals.push(manualId);
+    this.addLog(`📜 你获得了武学秘籍【${manual.name}】！`, 'success');
+    return { success: true, manual };
+  },
+
+  // 开始研读秘籍
+  startStudyManual(manualId) {
+    const s = this.state;
+    const manual = DATA.MANUALS.find(m => m.id === manualId);
+    if (!manual) return { success: false, msg: '未知秘籍' };
+    if (!s.collectedManuals.includes(manualId)) return { success: false, msg: '你还没有这本秘籍' };
+    if (s.studiedManuals.includes(manualId)) return { success: false, msg: '你已经研读过这本秘籍了' };
+    if (s.studyingManual) return { success: false, msg: `你正在研读【${DATA.MANUALS.find(m=>m.id===s.studyingManual.id)?.name}】，请先完成` };
+
+    // 检查研读条件
+    const req = manual.studyRequire || {};
+    for (const [k, v] of Object.entries(req)) {
+      if ((s[k] || 0) < v) {
+        const statNames = { perception:'悟性', innerPower:'内力', swordSkill:'剑术', agility:'身法', strength:'力量', endurance:'体魄', morality:'道德', evil:'邪气' };
+        return { success: false, msg: `研读此秘籍需要${statNames[k]||k}达到${v}（当前${s[k]||0}）` };
+      }
+    }
+
+    const currentMonth = s.year * 12 + s.month;
+    s.studyingManual = { id: manualId, startMonth: currentMonth, endMonth: currentMonth + manual.studyTime };
+    this.addLog(`📖 你开始研读【${manual.name}】，预计需要${manual.studyTime}个月。`, 'normal');
+    return { success: true };
+  },
+
+  // 检查研读进度（每月调用）
+  _checkManualStudy() {
+    const s = this.state;
+    if (!s.studyingManual) return;
+    const currentMonth = s.year * 12 + s.month;
+    if (currentMonth >= s.studyingManual.endMonth) {
+      const manualId = s.studyingManual.id;
+      const manual = DATA.MANUALS.find(m => m.id === manualId);
+      s.studyingManual = null;
+      s.studiedManuals.push(manualId);
+      // 移出收集列表（已研读）
+      s.collectedManuals = s.collectedManuals.filter(id => id !== manualId);
+
+      if (manual && manual.martialId) {
+        // 解锁对应武功
+        const result = this.learnMartial(manual.martialId, null, true);
+        if (result.success) {
+          this.addLog(`🌟 你研读完成【${manual.name}】，成功领悟了【${DATA.MARTIAL_ARTS.find(m=>m.id===manual.martialId)?.name}】！`, 'success');
+        } else {
+          this.addLog(`📜 你研读完成【${manual.name}】，武学有所精进，但尚未完全领悟。`, 'normal');
+        }
+      }
+    }
+  },
+
+  // 探索时随机发现秘籍
+  _tryFindManual(locationId) {
+    const s = this.state;
+    const loc = DATA.EXTRA_LOCATIONS.find(l => l.id === locationId);
+    const drops = loc ? loc.manualDrops : null;
+    const candidates = (DATA.MANUALS || []).filter(m => {
+      if (s.collectedManuals.includes(m.id)) return false;
+      if (s.studiedManuals.includes(m.id)) return false;
+      if (drops) return drops.includes(m.id);
+      return m.findChance > 0;
+    });
+    if (candidates.length === 0) return null;
+    for (const manual of candidates) {
+      if (Math.random() < (manual.findChance || 0.05)) {
+        this.collectManual(manual.id);
+        return manual;
+      }
+    }
+    return null;
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  G: 事件链系统
+  // ══════════════════════════════════════════════════════════
+
+  // 检查是否有可触发的事件链
+  _checkEventChains() {
+    const s = this.state;
+    if (!DATA.EVENT_CHAINS) return null;
+    for (const chain of DATA.EVENT_CHAINS) {
+      if (s.completedChains.includes(chain.id)) continue;
+      if (s.activeChains[chain.id]) continue;
+      // 检查触发条件
+      const trigger = chain.trigger || {};
+      let canTrigger = true;
+      for (const [k, v] of Object.entries(trigger)) {
+        if ((s[k] || 0) < v) { canTrigger = false; break; }
+      }
+      // 检查地点条件
+      if (chain.triggerLocation && s.location !== chain.triggerLocation) continue;
+      if (!canTrigger) continue;
+      // 20%概率触发
+      if (Math.random() < 0.2) {
+        s.activeChains[chain.id] = { currentStep: 'step1', startedAt: s.year * 12 + s.month };
+        return chain;
+      }
+    }
+    return null;
+  },
+
+  // 处理事件链选择
+  handleChainChoice(chainId, choiceIndex) {
+    const s = this.state;
+    const chain = DATA.EVENT_CHAINS.find(c => c.id === chainId);
+    if (!chain) return { success: false, msg: '未知事件链' };
+    const chainState = s.activeChains[chainId];
+    if (!chainState) return { success: false, msg: '该事件链未激活' };
+
+    const step = chain.steps.find(st => st.id === chainState.currentStep);
+    if (!step) return { success: false, msg: '事件步骤不存在' };
+    const choice = step.choices[choiceIndex];
+    if (!choice) return { success: false, msg: '无效选择' };
+
+    // 应用效果
+    const effect = choice.effect || {};
+    this._applyChainEffect(effect);
+
+    let endMsg = null;
+    if (choice.nextStep) {
+      chainState.currentStep = choice.nextStep;
+      return { success: true, continued: true, chain, nextStep: chain.steps.find(st => st.id === choice.nextStep) };
+    } else {
+      // 事件链结束
+      endMsg = choice.endMsg || '事件结束。';
+      delete s.activeChains[chainId];
+      s.completedChains.push(chainId);
+      return { success: true, continued: false, endMsg, chain };
+    }
+  },
+
+  // 应用事件链效果
+  _applyChainEffect(effect) {
+    const s = this.state;
+    const statKeys = ['hp','innerPower','strength','agility','swordSkill','endurance','perception','charm','gold','reputation','morality','evil'];
+    for (const k of statKeys) {
+      if (effect[k] !== undefined) s[k] = Math.max(0, (s[k] || 0) + effect[k]);
+    }
+    if (effect.addItem) this.addItem(effect.addItem, 1);
+    if (effect.addItem2) this.addItem(effect.addItem2, 1);
+    if (effect.addManual) this.collectManual(effect.addManual);
+    if (effect.addFollower) {
+      s.followers = s.followers || [];
+      s.followers.push({ npcId: 'chain_follower_' + Date.now(), loyalty: 80, name: '弟子' });
+    }
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  H: 地图扩展
+  // ══════════════════════════════════════════════════════════
+
+  // 检查并解锁新地点
+  checkLocationUnlocks() {
+    const s = this.state;
+    if (!DATA.EXTRA_LOCATIONS) return [];
+    const newlyUnlocked = [];
+    for (const loc of DATA.EXTRA_LOCATIONS) {
+      if (s.unlockedLocations.includes(loc.id)) continue;
+      const cond = loc.unlockCondition || {};
+      let canUnlock = true;
+      for (const [k, v] of Object.entries(cond)) {
+        if ((s[k] || 0) < v) { canUnlock = false; break; }
+      }
+      if (canUnlock) {
+        s.unlockedLocations.push(loc.id);
+        newlyUnlocked.push(loc);
+        this.addLog(`🗺️ 新地点解锁：【${loc.name}】${loc.desc}`, 'success');
+      }
+    }
+    return newlyUnlocked;
+  },
+
+  // 前往额外地点
+  travelToExtraLocation(locId) {
+    const s = this.state;
+    const loc = DATA.EXTRA_LOCATIONS.find(l => l.id === locId);
+    if (!loc) return { success: false, msg: '未知地点' };
+    if (!s.unlockedLocations.includes(locId)) return { success: false, msg: `${loc.unlockHint || '该地点尚未解锁'}` };
+    s.extraLocation = locId;
+    this.advanceTime(1);
+    this.addLog(`🗺️ 你前往了【${loc.name}】。`, 'normal');
+    // 尝试发现秘籍
+    this._tryFindManual(locId);
+    // 检查事件链
+    this._checkEventChains();
+    return { success: true, loc };
+  },
+
+  // 在额外地点执行特殊行动
+  doSpecialAction(locId, actionId) {
+    const s = this.state;
+    const loc = DATA.EXTRA_LOCATIONS.find(l => l.id === locId);
+    if (!loc) return { success: false, msg: '未知地点' };
+    const action = (loc.specialActions || []).find(a => a.id === actionId);
+    if (!action) return { success: false, msg: '未知行动' };
+
+    // 检查费用
+    if (action.cost && action.cost.gold && s.gold < action.cost.gold) {
+      return { success: false, msg: `需要${action.cost.gold}两银子` };
+    }
+    if (action.cost && action.cost.gold) s.gold -= action.cost.gold;
+
+    // 应用效果
+    const eff = action.effect || {};
+    const statKeys = ['hp','innerPower','strength','agility','swordSkill','endurance','perception','charm','gold','reputation','morality','evil'];
+    for (const k of statKeys) {
+      if (eff[k] !== undefined) s[k] = Math.max(0, (s[k] || 0) + eff[k]);
+    }
+
+    // 风险判定
+    if (action.risk && Math.random() < action.risk) {
+      const dmg = Math.floor(s.maxHp * 0.15);
+      s.hp = Math.max(1, s.hp - dmg);
+      this.addLog(`⚠️ 行动中遭遇意外，损失气血${dmg}点。`, 'danger');
+    }
+
+    // 触发事件链
+    if (action.triggerChain) {
+      const chain = DATA.EVENT_CHAINS.find(c => c.id === action.triggerChain);
+      if (chain && !s.completedChains.includes(action.triggerChain) && !s.activeChains[action.triggerChain]) {
+        s.activeChains[action.triggerChain] = { currentStep: 'step1', startedAt: s.year * 12 + s.month };
+      }
+    }
+
+    this.advanceTime(action.duration || 1);
+    this.addLog(`✅ 【${action.name}】完成。`, 'normal');
+    return { success: true, action };
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  I: 武功融合系统
+  // ══════════════════════════════════════════════════════════
+
+  // 获取可用的融合配方
+  getAvailableFusions() {
+    const s = this.state;
+    if (!DATA.FUSION_RECIPES) return [];
+    return DATA.FUSION_RECIPES.filter(recipe => {
+      if (s.fusedMartials.includes(recipe.id)) return false;
+      const has1 = s.martialArts.find(m => m.id === recipe.source1);
+      const has2 = s.martialArts.find(m => m.id === recipe.source2);
+      return has1 && has2;
+    });
+  },
+
+  // 执行武功融合
+  fuseMartial(recipeId) {
+    const s = this.state;
+    const recipe = (DATA.FUSION_RECIPES || []).find(r => r.id === recipeId);
+    if (!recipe) return { success: false, msg: '未知融合配方' };
+    if (s.fusedMartials.includes(recipeId)) return { success: false, msg: '你已经完成过这个融合了' };
+
+    // 检查是否拥有两门武功
+    const has1 = s.martialArts.find(m => m.id === recipe.source1);
+    const has2 = s.martialArts.find(m => m.id === recipe.source2);
+    if (!has1) {
+      const ma = DATA.MARTIAL_ARTS.find(m => m.id === recipe.source1);
+      return { success: false, msg: `需要先掌握【${ma?.name || recipe.source1}】` };
+    }
+    if (!has2) {
+      const ma = DATA.MARTIAL_ARTS.find(m => m.id === recipe.source2);
+      return { success: false, msg: `需要先掌握【${ma?.name || recipe.source2}】` };
+    }
+
+    // 检查属性要求
+    const req = recipe.require || {};
+    for (const [k, v] of Object.entries(req)) {
+      if ((s[k] || 0) < v) {
+        const statNames = { perception:'悟性', innerPower:'内力', swordSkill:'剑术', agility:'身法', strength:'力量', endurance:'体魄' };
+        return { success: false, msg: `融合需要${statNames[k]||k}达到${v}（当前${s[k]||0}）` };
+      }
+    }
+
+    // 检查费用
+    if (recipe.cost && recipe.cost.gold) {
+      if (s.gold < recipe.cost.gold) return { success: false, msg: `融合需要${recipe.cost.gold}两银子（当前${s.gold}两）` };
+      s.gold -= recipe.cost.gold;
+    }
+
+    // 执行融合：添加新武功
+    const result = recipe.result;
+    s.martialArts.push({ id: result.id, level: 1, exp: 0, fused: true });
+    s.fusedMartials.push(recipeId);
+
+    // 应用融合武功效果
+    const eff = result.effect || {};
+    const statKeys = ['hp','innerPower','strength','agility','swordSkill','endurance','perception','charm','reputation','morality'];
+    for (const k of statKeys) {
+      if (eff[k] !== undefined) s[k] = (s[k] || 0) + eff[k];
+    }
+    if (eff.hp) s.maxHp = (s.maxHp || 100) + eff.hp;
+
+    this.advanceTime(recipe.studyTime || 6);
+    this.addLog(`🌟 武功融合成功！【${DATA.MARTIAL_ARTS.find(m=>m.id===recipe.source1)?.name}】与【${DATA.MARTIAL_ARTS.find(m=>m.id===recipe.source2)?.name}】融为一体，化为【${result.name}】！`, 'success');
+    this._checkTitles();
+    return { success: true, recipe, result };
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  J: 年代事件系统
+  // ══════════════════════════════════════════════════════════
+
+  // 检查年代事件（在 advanceTime 中调用）
+  _checkEraEvents() {
+    const s = this.state;
+    if (!DATA.ERA_EVENTS) return null;
+    for (const era of DATA.ERA_EVENTS) {
+      // 检查是否已触发（不重复的）
+      if (era.repeatEvery === 0 && s.triggeredEraEvents.includes(era.id)) continue;
+      // 检查触发年份
+      let shouldTrigger = false;
+      if (era.repeatEvery > 0) {
+        // 周期性事件
+        const elapsed = s.year - era.triggerYear;
+        if (elapsed >= 0 && elapsed % era.repeatEvery === 0 && s.month === 1) {
+          const instanceId = `${era.id}_y${s.year}`;
+          if (!s.triggeredEraEvents.includes(instanceId)) {
+            shouldTrigger = true;
+            s.triggeredEraEvents.push(instanceId);
+          }
+        }
+      } else {
+        // 一次性事件
+        if (s.year === era.triggerYear && s.month === 1) {
+          shouldTrigger = true;
+          s.triggeredEraEvents.push(era.id);
+        }
+      }
+      if (shouldTrigger) {
+        s.pendingEraEvent = era.id;
+        this.addLog(`📣 江湖大事：${era.desc}`, 'warning');
+        return era;
+      }
+    }
+    return null;
+  },
+
+  // 处理年代事件选择
+  handleEraEventChoice(eraId, choiceIndex) {
+    const s = this.state;
+    const era = DATA.ERA_EVENTS.find(e => e.id === eraId);
+    if (!era) return { success: false, msg: '未知年代事件' };
+    const choice = era.choices[choiceIndex];
+    if (!choice) return { success: false, msg: '无效选择' };
+
+    // 检查条件
+    if (choice.condition) {
+      for (const [k, v] of Object.entries(choice.condition)) {
+        if ((s[k] || 0) < v) {
+          const statNames = { reputation:'声望', morality:'道德', swordSkill:'剑术', innerPower:'内力', perception:'悟性' };
+          return { success: false, msg: `此选项需要${statNames[k]||k}达到${v}` };
+        }
+      }
+    }
+
+    // 应用效果
+    const eff = choice.effect || {};
+    const statKeys = ['hp','innerPower','strength','agility','swordSkill','endurance','perception','charm','gold','reputation','morality','evil'];
+    for (const k of statKeys) {
+      if (eff[k] !== undefined) s[k] = Math.max(0, (s[k] || 0) + eff[k]);
+    }
+
+    s.pendingEraEvent = null;
+    this._checkTitles();
+    this.addLog(`✅ 你做出了选择：${choice.text}`, 'normal');
+    return { success: true, era, choice };
   },
 
   // ── 保存/读取 ─────────────────────────────────────────────

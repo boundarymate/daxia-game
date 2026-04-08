@@ -1061,7 +1061,7 @@ ENDINGS: [
     condition:{ evil:80, innerPower:300, sectRank:{ sect:'s_mingjiao', rank:9 } },
     desc:'你走上邪道，凭借强横武力成为魔教教主，令江湖闻风丧胆。' },
   { id:'end_hermit',  name:'隐世高人',
-    condition:{ innerPower:400, reputation:100, morality:50 },
+    condition:{ innerPower:500, reputation:150, morality:70, age:45 },
     desc:'你看破红尘，隐居山林，成为传说中的世外高人，偶尔出山指点后辈。' },
   { id:'end_general', name:'护国将军',
     condition:{ reputation:150, strength:200, sectRank:{ sect:'s_court', rank:5 } },
@@ -1070,7 +1070,7 @@ ENDINGS: [
     condition:{ swordSkill:300, innerPower:200, reputation:150 },
     desc:'你一生痴迷剑道，终于悟出剑道至理，成为天下第一剑客，独孤求败。' },
   { id:'end_love',    name:'归隐田园',
-    condition:{ charm:100, morality:40, followers:1 },
+    condition:{ charm:120, morality:60, spouse:true },
     desc:'你找到了心爱之人，携手归隐田园，过上了平静幸福的生活。' },
 ],
 
@@ -1603,5 +1603,537 @@ RANKING_CHALLENGE_REWARD: {
   // 击败前三名的特殊奖励
   topThreeBonus: { reputation: 200, title: 'title_wulin_first' },
 },
+
+// ═══════════════════════════════════════════════════════════
+//  F: 武学秘籍系统
+//  秘籍是可收集的物品，收集后需要"研读"才能解锁对应武功
+//  tier: 1=残卷(普通), 2=完整秘籍, 3=绝世秘典
+//  martialId: 对应 MARTIAL_ARTS 中的武功 id
+//  findChance: 在各地点探索时的发现概率(0-1)
+//  locations: 可能出现的地点
+// ═══════════════════════════════════════════════════════════
+MANUALS: [
+  // ── 内功秘籍 ──
+  { id:'mn_jiuyang',   name:'九阳神功残卷',  tier:3, martialId:'m_jiuyang',
+    desc:'少林镇寺之宝，记载九阳神功心法，字字珠玑，需有极高悟性方能参透。',
+    icon:'📜', studyTime:6, studyRequire:{ perception:50, innerPower:60 },
+    locations:['少林寺'], findChance:0.05 },
+  { id:'mn_jiuyin',    name:'九阴真经（上册）', tier:3, martialId:'m_jiuyin',
+    desc:'武林至高秘典上册，内功心法精妙绝伦，得此一册已是莫大机缘。',
+    icon:'📜', studyTime:8, studyRequire:{ perception:60, innerPower:50 },
+    locations:['古墓', '桃花岛'], findChance:0.04 },
+  { id:'mn_beiming',   name:'北冥神功心法',  tier:3, martialId:'m_beiming',
+    desc:'逍遥派不传之秘，以北冥为名，吸纳天地精华，内力深不可测。',
+    icon:'📜', studyTime:6, studyRequire:{ perception:55, innerPower:50 },
+    locations:['逍遥岛'], findChance:0.06 },
+  { id:'mn_yijin',     name:'易筋经',        tier:2, martialId:'m_yijin',
+    desc:'少林七十二绝技之首，修炼后筋骨脱胎换骨，内力大增。',
+    icon:'📖', studyTime:4, studyRequire:{ endurance:40, innerPower:40 },
+    locations:['少林寺'], findChance:0.08 },
+  { id:'mn_zixia',     name:'紫霞秘笈',      tier:2, martialId:'m_zixia',
+    desc:'华山派内功心法，刚柔并济，修炼者内力纯正，剑法亦随之精进。',
+    icon:'📖', studyTime:3, studyRequire:{ innerPower:30, perception:30 },
+    locations:['华山'], findChance:0.10 },
+  { id:'mn_chunyang',  name:'纯阳功法',      tier:1, martialId:'m_chunyang',
+    desc:'全真教基础内功，修炼者内力纯正，是入门的好选择。',
+    icon:'📄', studyTime:2, studyRequire:{ morality:10 },
+    locations:['小镇', '江湖'], findChance:0.15 },
+
+  // ── 剑法秘籍 ──
+  { id:'mn_duli',      name:'独孤九剑剑谱',  tier:3, martialId:'m_duli',
+    desc:'风清扬所传，天下第一剑法，无招胜有招，破尽天下武功，得此剑谱者天下无敌。',
+    icon:'📜', studyTime:10, studyRequire:{ swordSkill:70, perception:70, agility:50 },
+    locations:['华山'], findChance:0.03 },
+  { id:'mn_taiji',     name:'太极剑法图解',  tier:2, martialId:'m_taiji',
+    desc:'武当派镇派之宝，以柔克刚，四两拨千斤，图文并茂，易于参悟。',
+    icon:'📖', studyTime:4, studyRequire:{ swordSkill:40, innerPower:40 },
+    locations:['武当山'], findChance:0.08 },
+  { id:'mn_huashan',   name:'华山剑法手册',  tier:1, martialId:'m_huashan',
+    desc:'华山派正宗剑法，刚猛凌厉，是华山弟子必修功课。',
+    icon:'📄', studyTime:2, studyRequire:{ swordSkill:20 },
+    locations:['华山', '江湖'], findChance:0.15 },
+
+  // ── 掌法秘籍 ──
+  { id:'mn_jianglong', name:'降龙十八掌掌谱', tier:3, martialId:'m_jianglong',
+    desc:'丐帮镇帮绝学，刚猛无匹，天下第一掌法，每一掌皆有排山倒海之势。',
+    icon:'📜', studyTime:7, studyRequire:{ strength:60, innerPower:50, endurance:40 },
+    locations:['丐帮总舵'], findChance:0.05 },
+  { id:'mn_tianshan',  name:'天山折梅手诀',  tier:2, martialId:'m_tianshan',
+    desc:'逍遥派绝学，以柔克刚，变化无穷，需有极高悟性方能领悟其中奥妙。',
+    icon:'📖', studyTime:5, studyRequire:{ agility:40, perception:40 },
+    locations:['逍遥岛'], findChance:0.07 },
+
+  // ── 轻功秘籍 ──
+  { id:'mn_lingbo',    name:'凌波微步图谱',  tier:3, martialId:'m_lingbo',
+    desc:'天下第一轻功，步法变化如鬼魅，以《易经》六十四卦为基础，变化无穷。',
+    icon:'📜', studyTime:8, studyRequire:{ agility:60, innerPower:50, perception:50 },
+    locations:['逍遥岛'], findChance:0.04 },
+  { id:'mn_tianzhan',  name:'梯云纵口诀',    tier:2, martialId:'m_tianzhan',
+    desc:'武当轻功，纵跃如飞，是武当弟子必修的基础轻功。',
+    icon:'📖', studyTime:3, studyRequire:{ agility:30, innerPower:25 },
+    locations:['武当山'], findChance:0.10 },
+
+  // ── 邪功秘籍 ──
+  { id:'mn_sunflower', name:'葵花宝典残页',  tier:3, martialId:'m_sunflower',
+    desc:'武功奇书，修炼者需自宫，威力无与伦比。残页上的内容已足以让人武功大进，但代价极大。',
+    icon:'📜', studyTime:12, studyRequire:{ innerPower:70, evil:15 },
+    locations:['古墓', '江湖'], findChance:0.02 },
+],
+
+// ═══════════════════════════════════════════════════════════
+//  G: 事件链系统
+//  多步骤连锁事件，每个 chain 由若干 steps 组成
+//  trigger: 触发条件（首次触发）
+//  steps: 事件步骤数组，每步有 id/desc/choices
+//  choices: 选项，每个选项有 text/effect/nextStep（null=结束）
+// ═══════════════════════════════════════════════════════════
+EVENT_CHAINS: [
+  {
+    id: 'chain_sword_destiny',
+    name: '剑缘',
+    desc: '一段与神剑相关的奇缘',
+    trigger: { swordSkill: 40, reputation: 30 },
+    triggerLocation: null, // null=任意地点
+    steps: [
+      {
+        id: 'step1',
+        title: '神秘老者',
+        desc: '你在路边遇到一位白发苍苍的老者，他打量你片刻，缓缓开口："年轻人，你与剑有缘，老夫有一事相托……"',
+        choices: [
+          { text: '恭敬聆听', effect: { morality: 2 }, nextStep: 'step2_listen' },
+          { text: '婉言谢绝', effect: {}, nextStep: null, endMsg: '你婉言谢绝，老者叹了口气，转身离去。' },
+        ]
+      },
+      {
+        id: 'step2_listen',
+        title: '托付重任',
+        desc: '老者从怀中取出一块玉佩："此乃我毕生心血所铸，内藏一门剑法口诀。你若能找到华山之巅的剑冢，将此玉佩放入，便可得到完整剑谱。"',
+        choices: [
+          { text: '接受玉佩，前往华山', effect: { addItem: 'i_jade_sword', morality: 5 }, nextStep: 'step3_huashan' },
+          { text: '询问老者身份', effect: {}, nextStep: 'step2b_ask' },
+        ]
+      },
+      {
+        id: 'step2b_ask',
+        title: '老者的秘密',
+        desc: '老者微微一笑："老夫不过是一个爱剑之人，姓名已不重要。"他将玉佩塞入你手中，转身消失在茫茫人海。',
+        choices: [
+          { text: '前往华山', effect: { addItem: 'i_jade_sword' }, nextStep: 'step3_huashan' },
+        ]
+      },
+      {
+        id: 'step3_huashan',
+        title: '华山剑冢',
+        desc: '你历经艰辛来到华山之巅，找到了传说中的剑冢。将玉佩放入后，石壁上缓缓浮现出剑法图谱，你屏息凝神，将其一一记下。',
+        choices: [
+          { text: '潜心参悟（需要7天）', effect: { swordSkill: 25, perception: 10, addManual: 'mn_duli' }, nextStep: null, endMsg: '你在剑冢旁苦修七日，终于将剑法融会贯通，武功大进！' },
+          { text: '拓印带走', effect: { addManual: 'mn_duli' }, nextStep: null, endMsg: '你将剑谱拓印带走，日后慢慢研读。' },
+        ]
+      },
+    ]
+  },
+  {
+    id: 'chain_poison_master',
+    name: '毒手药王',
+    desc: '与一位神秘毒医的相遇',
+    trigger: { endurance: 30 },
+    triggerLocation: null,
+    steps: [
+      {
+        id: 'step1',
+        title: '中毒',
+        desc: '你在山中行走时，不慎触碰了一株奇异的植物，顿时感到全身麻痹，毒素迅速蔓延……',
+        choices: [
+          { text: '强行运功逼毒', effect: { hp: -20, innerPower: -10 }, nextStep: 'step2_fight' },
+          { text: '就地休息等待', effect: { hp: -10 }, nextStep: 'step2_wait' },
+        ]
+      },
+      {
+        id: 'step2_fight',
+        title: '毒素蔓延',
+        desc: '你强行运功，毒素反而扩散更快，就在你快要支撑不住时，一个身影出现在你面前……',
+        choices: [
+          { text: '请求帮助', effect: { morality: 3 }, nextStep: 'step3_healer' },
+        ]
+      },
+      {
+        id: 'step2_wait',
+        title: '神秘救援',
+        desc: '你静静等待，毒素慢慢侵蚀你的身体。就在意识模糊之际，一个老人出现了，他从药箱中取出一粒丹药……',
+        choices: [
+          { text: '服下丹药', effect: { hp: 30 }, nextStep: 'step3_healer' },
+        ]
+      },
+      {
+        id: 'step3_healer',
+        title: '毒手药王',
+        desc: '救你的是一位须发皆白的老医者，自称"毒手药王"。他为你解毒后说："你体质不错，若有兴趣，可随我学习医毒之道。"',
+        choices: [
+          { text: '拜师学艺', effect: { perception: 15, endurance: 10, addItem: 'i_jiedu', addItem2: 'i_wudu' }, nextStep: null, endMsg: '你跟随毒手药王学习了一段时间，对医毒之道有了深刻认识，体质大为增强。' },
+          { text: '道谢离去', effect: { morality: 5, addItem: 'i_jiedu' }, nextStep: null, endMsg: '你向老医者道谢，他赠你一粒解毒丹，你们就此别过。' },
+        ]
+      },
+    ]
+  },
+  {
+    id: 'chain_lost_disciple',
+    name: '迷途弟子',
+    desc: '一个走火入魔的年轻人',
+    trigger: { morality: 20, reputation: 40 },
+    triggerLocation: null,
+    steps: [
+      {
+        id: 'step1',
+        title: '走火入魔',
+        desc: '你在路上遇到一个年轻人，他双目赤红，内力失控，正在伤害路人。旁边的人都吓得四散奔逃。',
+        choices: [
+          { text: '出手制止', effect: { hp: -15, morality: 10 }, nextStep: 'step2_stop' },
+          { text: '绕道而行', effect: { morality: -5 }, nextStep: null, endMsg: '你选择绕道而行，事后听说那个年轻人伤了几个路人，你心中有些愧疚。' },
+        ]
+      },
+      {
+        id: 'step2_stop',
+        title: '点穴制敌',
+        desc: '你出手点住了年轻人的穴道，他慢慢恢复了神智，泪流满面："多谢大侠救我，我修炼时走火入魔，差点铸成大错……"',
+        choices: [
+          { text: '传授调息之法', effect: { reputation: 15, morality: 10, perception: 5 }, nextStep: 'step3_teach' },
+          { text: '带他去找名医', effect: { gold: -30, morality: 15 }, nextStep: 'step3_doctor' },
+        ]
+      },
+      {
+        id: 'step3_teach',
+        title: '传道授业',
+        desc: '你将自己所知的调息之法传授给他，他感激涕零，拜你为师。数月后，他武功大进，成为你的得力弟子。',
+        choices: [
+          { text: '收他为徒', effect: { reputation: 20, addFollower: true }, nextStep: null, endMsg: '你收下了这个弟子，他日后成为你的左膀右臂，江湖上也多了一段佳话。' },
+        ]
+      },
+      {
+        id: 'step3_doctor',
+        title: '名医诊治',
+        desc: '你带他找到了一位名医，花费了不少银两，但年轻人的走火入魔之症得到了根治。他感激地说："大侠大恩大德，没齿难忘！"',
+        choices: [
+          { text: '挥手道别', effect: { reputation: 25, morality: 20 }, nextStep: null, endMsg: '你挥手道别，年轻人含泪而去。此事在江湖上传为美谈，你的声望大增。' },
+        ]
+      },
+    ]
+  },
+  {
+    id: 'chain_ancient_tomb',
+    name: '古墓奇遇',
+    desc: '深入古墓探寻秘密',
+    trigger: { agility: 40, perception: 35 },
+    triggerLocation: '古墓',
+    steps: [
+      {
+        id: 'step1',
+        title: '密室发现',
+        desc: '你在古墓深处发现了一扇隐藏的石门，门上刻着奇异的符文，散发着淡淡的寒气。',
+        choices: [
+          { text: '强行推开', effect: { hp: -10, strength: 5 }, nextStep: 'step2_force' },
+          { text: '研究符文', effect: { perception: 8 }, nextStep: 'step2_study' },
+        ]
+      },
+      {
+        id: 'step2_force',
+        title: '机关触发',
+        desc: '石门轰然打开，但同时触发了机关，暗箭四射！你受了些伤，但也进入了密室。',
+        choices: [
+          { text: '搜寻密室', effect: { addManual: 'mn_jiuyin' }, nextStep: null, endMsg: '密室中藏有九阴真经上册！你如获至宝，小心收好。' },
+        ]
+      },
+      {
+        id: 'step2_study',
+        title: '破解符文',
+        desc: '你仔细研究符文，发现这是一套机关密码。按照规律推演，你轻松打开了石门，进入密室。',
+        choices: [
+          { text: '搜寻密室', effect: { perception: 5, addManual: 'mn_jiuyin' }, nextStep: null, endMsg: '密室中藏有九阴真经上册，以及一些前人留下的武学心得！你大喜过望。' },
+        ]
+      },
+    ]
+  },
+],
+
+// ═══════════════════════════════════════════════════════════
+//  H: 地图扩展 — 新地点定义
+//  unlockCondition: 解锁条件（满足后可前往）
+//  danger: 危险等级 1-5
+//  specialActions: 该地点特有的行动
+// ═══════════════════════════════════════════════════════════
+EXTRA_LOCATIONS: [
+  {
+    id: 'loc_shaolin',
+    name: '少林寺',
+    desc: '天下武学发源地，少林七十二绝技举世无双，寺中高僧如云。',
+    icon: '🏯',
+    danger: 1,
+    unlockCondition: { reputation: 50, morality: 20 },
+    unlockHint: '声望足够且品行端正，方可拜访少林圣地',
+    npcs: ['npc_shaolin_abbot'],
+    specialActions: [
+      { id: 'shaolin_study', name: '研习佛法', desc: '在少林寺研习佛法武学', cost: { gold: 0 }, effect: { innerPower: 8, morality: 5, endurance: 5 }, duration: 1 },
+      { id: 'shaolin_spar', name: '切磋武艺', desc: '与少林武僧切磋', cost: { gold: 0 }, effect: { swordSkill: 5, strength: 5, hp: -10 }, duration: 1 },
+    ],
+    manualDrops: ['mn_yijin', 'mn_jiuyang'],
+  },
+  {
+    id: 'loc_wudang',
+    name: '武当山',
+    desc: '道家圣地，武当派以内功见长，太极剑法天下闻名。',
+    icon: '⛰️',
+    danger: 1,
+    unlockCondition: { reputation: 40, morality: 15 },
+    unlockHint: '需要一定声望和品行方可上山',
+    npcs: [],
+    specialActions: [
+      { id: 'wudang_taichi', name: '修炼太极', desc: '修炼武当太极功法', cost: { gold: 0 }, effect: { innerPower: 6, agility: 6, swordSkill: 4 }, duration: 1 },
+      { id: 'wudang_meditate', name: '打坐悟道', desc: '在武当山打坐悟道', cost: { gold: 0 }, effect: { perception: 8, innerPower: 5, morality: 3 }, duration: 1 },
+    ],
+    manualDrops: ['mn_tianzhan', 'mn_taiji'],
+  },
+  {
+    id: 'loc_peachblossom',
+    name: '桃花岛',
+    desc: '东邪黄药师的居所，岛上奇花异草，机关重重，武学奇书众多。',
+    icon: '🌸',
+    danger: 3,
+    unlockCondition: { agility: 50, perception: 40 },
+    unlockHint: '需要极高的身法和悟性才能找到并登上桃花岛',
+    npcs: ['npc_huangyaoshi'],
+    specialActions: [
+      { id: 'peach_explore', name: '探索机关', desc: '探索岛上的奇门机关', cost: { gold: 0 }, effect: { perception: 10, agility: 8 }, duration: 1, risk: 0.3 },
+      { id: 'peach_study', name: '研读典籍', desc: '研读岛上收藏的武学典籍', cost: { gold: 0 }, effect: { perception: 12, innerPower: 6 }, duration: 2 },
+    ],
+    manualDrops: ['mn_jiuyin', 'mn_lingbo'],
+  },
+  {
+    id: 'loc_guangming',
+    name: '光明顶',
+    desc: '明教圣地，教众众多，武学独特，与正道势力长期对立。',
+    icon: '🔥',
+    danger: 3,
+    unlockCondition: { evil: 20, reputation: 60 },
+    unlockHint: '需要一定的邪气或在江湖上有足够名望，方能找到光明顶',
+    npcs: [],
+    specialActions: [
+      { id: 'guangming_train', name: '修炼圣火功', desc: '修炼明教圣火功法', cost: { gold: 0 }, effect: { innerPower: 10, evil: 5, strength: 8 }, duration: 1 },
+      { id: 'guangming_mission', name: '执行教务', desc: '为明教执行任务', cost: { gold: 0 }, effect: { gold: 50, reputation: 10, evil: 3 }, duration: 1 },
+    ],
+    manualDrops: ['mn_huagong'],
+  },
+  {
+    id: 'loc_xiaoyao',
+    name: '逍遥岛',
+    desc: '逍遥派隐秘之地，北冥神功、凌波微步等绝世武学皆出于此。',
+    icon: '🏝️',
+    danger: 4,
+    unlockCondition: { innerPower: 100, perception: 80 },
+    unlockHint: '需要极深的内力和悟性，方能感应到逍遥岛的所在',
+    npcs: [],
+    specialActions: [
+      { id: 'xiaoyao_absorb', name: '修炼北冥', desc: '修炼北冥神功，吸纳天地精华', cost: { gold: 0 }, effect: { innerPower: 20, hp: 10 }, duration: 2 },
+      { id: 'xiaoyao_step', name: '练习凌波', desc: '练习凌波微步步法', cost: { gold: 0 }, effect: { agility: 15, perception: 8 }, duration: 1 },
+    ],
+    manualDrops: ['mn_beiming', 'mn_lingbo', 'mn_tianshan'],
+  },
+  {
+    id: 'loc_huashan',
+    name: '华山',
+    desc: '华山派所在，剑法天下闻名，山顶剑冢藏有绝世剑谱。',
+    icon: '🗻',
+    danger: 2,
+    unlockCondition: { swordSkill: 30, reputation: 30 },
+    unlockHint: '剑法有所成就且有一定名望，方可登上华山',
+    npcs: [],
+    specialActions: [
+      { id: 'huashan_sword', name: '练剑', desc: '在华山练习剑法', cost: { gold: 0 }, effect: { swordSkill: 10, agility: 5 }, duration: 1 },
+      { id: 'huashan_tomb', name: '探寻剑冢', desc: '寻找传说中的剑冢', cost: { gold: 0 }, effect: { perception: 5 }, duration: 1, triggerChain: 'chain_sword_destiny' },
+    ],
+    manualDrops: ['mn_duli', 'mn_zixia', 'mn_huashan'],
+  },
+],
+
+// ═══════════════════════════════════════════════════════════
+//  I: 武功融合配方
+//  需要同时掌握 source1 和 source2 两门武功，
+//  消耗一定资源后，融合为 result 武功（新的更强武功）
+//  result 武功直接加入 MARTIAL_ARTS 效果，不需要单独定义
+// ═══════════════════════════════════════════════════════════
+FUSION_RECIPES: [
+  {
+    id: 'fusion_yin_yang',
+    name: '阴阳合一',
+    source1: 'm_jiuyang',   // 九阳神功
+    source2: 'm_jiuyin',    // 九阴真经
+    result: {
+      id: 'm_yinyang',
+      name: '阴阳神功',
+      type: 'inner',
+      tier: 6,
+      desc: '融合九阳九阴之精华，刚柔并济，阴阳调和，天下无双。修炼者内力深不可测，百毒不侵，且兼具攻守。',
+      effect: { innerPower: 120, endurance: 50, hp: 60, agility: 30, swordSkill: 30 },
+    },
+    require: { innerPower: 150, perception: 100 },
+    cost: { gold: 500 },
+    studyTime: 12,
+    desc: '将九阳神功与九阴真经融为一体，需要极高的内力和悟性，以及大量时间潜心参悟。',
+  },
+  {
+    id: 'fusion_sword_palm',
+    name: '剑掌合一',
+    source1: 'm_duli',      // 独孤九剑
+    source2: 'm_jianglong', // 降龙十八掌
+    result: {
+      id: 'm_jianlongzhang',
+      name: '降龙剑掌',
+      type: 'sword',
+      tier: 6,
+      desc: '融合独孤九剑的无招胜有招与降龙十八掌的刚猛无匹，出剑如掌，出掌如剑，攻无不克。',
+      effect: { swordSkill: 80, strength: 50, innerPower: 40, agility: 20 },
+    },
+    require: { swordSkill: 120, strength: 80, perception: 80 },
+    cost: { gold: 300 },
+    studyTime: 10,
+    desc: '将剑法与掌法融为一体，需要极高的剑术和力量，以及深厚的悟性。',
+  },
+  {
+    id: 'fusion_light_inner',
+    name: '御风而行',
+    source1: 'm_lingbo',    // 凌波微步
+    source2: 'm_beiming',   // 北冥神功
+    result: {
+      id: 'm_yufeng',
+      name: '御风神功',
+      type: 'qinggong',
+      tier: 6,
+      desc: '以北冥神功为根基，以凌波微步为形，内外合一，如御风而行，飘忽不定，天下无人能追。',
+      effect: { agility: 80, innerPower: 60, speed: 50, perception: 20 },
+    },
+    require: { agility: 100, innerPower: 120, perception: 90 },
+    cost: { gold: 400 },
+    studyTime: 10,
+    desc: '将轻功与内功融为一体，需要极高的身法和内力，以及深厚的悟性。',
+  },
+  {
+    id: 'fusion_taiji_jiuyin',
+    name: '太极阴阳',
+    source1: 'm_taiji',     // 太极剑法
+    source2: 'm_jiuyin',    // 九阴真经
+    result: {
+      id: 'm_taijiyinyang',
+      name: '太极阴阳剑',
+      type: 'sword',
+      tier: 5,
+      desc: '以九阴真经为内力根基，以太极剑法为外在形式，阴阳流转，变化无穷，以柔克刚达到极致。',
+      effect: { swordSkill: 50, innerPower: 40, agility: 30, endurance: 20 },
+    },
+    require: { swordSkill: 80, innerPower: 80, perception: 70 },
+    cost: { gold: 200 },
+    studyTime: 8,
+    desc: '将太极剑法与九阴真经融合，需要较高的剑术和内力。',
+  },
+],
+
+// ═══════════════════════════════════════════════════════════
+//  J: 年代事件系统
+//  每隔固定年数触发的江湖大事，影响整个游戏世界
+//  triggerYear: 触发年份（游戏内年份）
+//  type: 'world'=世界事件, 'opportunity'=机遇, 'crisis'=危机
+//  effect: 对玩家的影响（可选）
+//  worldEffect: 对世界状态的影响
+// ═══════════════════════════════════════════════════════════
+ERA_EVENTS: [
+  {
+    id: 'era_wulin_assembly',
+    name: '武林大会',
+    triggerYear: 3,
+    repeatEvery: 5, // 每5年重复一次
+    type: 'opportunity',
+    desc: '五年一度的武林大会在中原召开，天下英雄齐聚一堂，切磋武艺，论道江湖。',
+    detail: '武林大会是江湖中最盛大的聚会，各大门派掌门亲临，武林排行榜将在此更新。参与者可以结交豪杰，切磋武艺，甚至有机会获得秘籍传授。',
+    choices: [
+      { text: '参加武林大会', effect: { reputation: 30, swordSkill: 10, perception: 5 }, condition: { reputation: 30 } },
+      { text: '旁观学习', effect: { perception: 15, swordSkill: 5 } },
+      { text: '不予理会', effect: {} },
+    ],
+    worldEffect: { rankingUpdate: true },
+  },
+  {
+    id: 'era_mongol_invasion',
+    name: '蒙古南侵',
+    triggerYear: 5,
+    repeatEvery: 0, // 不重复
+    type: 'crisis',
+    desc: '蒙古大军南下，铁蹄踏遍中原，无数百姓流离失所，江湖中人纷纷起义抗敌。',
+    detail: '蒙古大军势如破竹，各大城市相继告急。郭靖大侠在襄阳城头振臂高呼，号召天下英雄共抗外敌。这是一个考验每个江湖人良知的时刻。',
+    choices: [
+      { text: '投身抗蒙大业', effect: { reputation: 50, morality: 20, hp: -30 }, condition: { morality: 10 } },
+      { text: '保护百姓撤离', effect: { reputation: 25, morality: 15, gold: -50 } },
+      { text: '趁乱发财', effect: { gold: 100, morality: -30, evil: 20 } },
+      { text: '置身事外', effect: { morality: -10 } },
+    ],
+    worldEffect: { locationDanger: { '襄阳': 3 } },
+  },
+  {
+    id: 'era_jianghu_plague',
+    name: '江湖瘟疫',
+    triggerYear: 7,
+    repeatEvery: 0,
+    type: 'crisis',
+    desc: '一场神秘瘟疫席卷江湖，许多武林人士相继病倒，据说与某种奇毒有关。',
+    detail: '瘟疫来势汹汹，各大门派损失惨重。有人说这是某个邪派的阴谋，也有人说是上天的惩罚。医者仁心，此时正是展现侠义的时候。',
+    choices: [
+      { text: '寻找解药（需要草药知识）', effect: { reputation: 40, morality: 25, perception: 10 }, condition: { perception: 40 } },
+      { text: '救治病患', effect: { reputation: 20, morality: 20, hp: -20, gold: -80 } },
+      { text: '隔离自保', effect: { hp: 10 } },
+    ],
+    worldEffect: { npcAvailability: 0.7 },
+  },
+  {
+    id: 'era_secret_revealed',
+    name: '武林秘典现世',
+    triggerYear: 10,
+    repeatEvery: 0,
+    type: 'opportunity',
+    desc: '传说中的《武林秘典》在江湖中现世，记载了上古武学的精髓，各大势力争相夺取。',
+    detail: '《武林秘典》是传说中的武学总纲，据说得此秘典者可在短时间内武功大进。然而争夺秘典的过程中，江湖腥风血雨，不知多少人为此丧命。',
+    choices: [
+      { text: '参与争夺', effect: { innerPower: 30, swordSkill: 20, hp: -40, reputation: 20 }, condition: { reputation: 60 } },
+      { text: '暗中观察', effect: { perception: 20, reputation: 10 } },
+      { text: '将秘典销毁以平息纷争', effect: { morality: 30, reputation: 40 }, condition: { morality: 40 } },
+    ],
+    worldEffect: {},
+  },
+  {
+    id: 'era_wulin_tournament',
+    name: '天下第一武道会',
+    triggerYear: 8,
+    repeatEvery: 10,
+    type: 'opportunity',
+    desc: '十年一度的天下第一武道会开幕，胜者将被封为"天下第一"，名扬四海。',
+    detail: '武道会汇聚了天下最顶尖的武者，每一场比试都是武学的盛宴。胜者不仅名扬天下，还将获得丰厚的奖励和各大门派的尊重。',
+    choices: [
+      { text: '参加武道会', effect: { reputation: 60, swordSkill: 15, innerPower: 10 }, condition: { reputation: 80, swordSkill: 60 } },
+      { text: '观摩学习', effect: { perception: 20, swordSkill: 8 } },
+      { text: '不感兴趣', effect: {} },
+    ],
+    worldEffect: { rankingUpdate: true },
+  },
+  {
+    id: 'era_peace_treaty',
+    name: '江湖休战',
+    triggerYear: 12,
+    repeatEvery: 0,
+    type: 'world',
+    desc: '经过多年的纷争，各大门派终于坐下来谈判，签订了《江湖休战协议》，武林迎来难得的和平时期。',
+    detail: '和平时期，各大门派开放交流，武学传播更加自由，江湖中的仇恨也逐渐消散。这是修炼和结交朋友的好时机。',
+    choices: [
+      { text: '积极参与和平建设', effect: { reputation: 20, morality: 15, gold: 30 } },
+      { text: '趁机广交朋友', effect: { charm: 15, reputation: 15 } },
+      { text: '利用和平期潜心修炼', effect: { innerPower: 20, swordSkill: 15, perception: 10 } },
+    ],
+    worldEffect: { factionRelations: 'improved' },
+  },
+],
 
 };

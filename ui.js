@@ -322,7 +322,6 @@ const UI = {
     const ending = Engine.checkEnding ? Engine.checkEnding() : null;
     if (ending) this.showEnding(ending);
     // 扩展结局
-    const s = Engine.state;
     if (s.ending && !this._shownExtraEnding) {
       this._shownExtraEnding = s.ending.id;
       setTimeout(() => this.showExtraEnding(s.ending), 500);
@@ -342,6 +341,23 @@ const UI = {
 
     // B: 武林大会行动提示
     this._tournamentActive = Engine.isTournamentActive ? Engine.isTournamentActive() : false;
+
+    // J: 检查年代事件弹窗
+    if (s.pendingEraEvent && s.pendingEraEvent !== this._shownEraEvent) {
+      this._shownEraEvent = s.pendingEraEvent;
+      const era = (DATA.ERA_EVENTS || []).find(e => e.id === s.pendingEraEvent);
+      if (era) setTimeout(() => this.showEraEventModal(era), 700);
+    } else if (!s.pendingEraEvent) {
+      this._shownEraEvent = null;
+    }
+
+    // G: 检查事件链弹窗
+    const activeChains = s.activeChains || {};
+    const chainIds = Object.keys(activeChains);
+    if (chainIds.length > 0 && chainIds[0] !== this._shownChain) {
+      this._shownChain = chainIds[0];
+      setTimeout(() => this._checkPendingChains(), 800);
+    }
   },
 
   renderStatBars() {
@@ -497,6 +513,9 @@ const UI = {
       case 'ranking':   this.renderRanking(); break;
       case 'bag':       this.renderBag(); break;
       case 'titles':   this.renderTitles(); break;
+      case 'manuals':  this.renderManuals(); break;
+      case 'fusion':   this.renderFusion(); break;
+      case 'era':      this.renderEra(); break;
     }
   },
 
@@ -535,20 +554,6 @@ const UI = {
     }
 
     document.getElementById('action-grid').innerHTML = html;
-  },
-
-  renderMap() {
-    const s = Engine.state;
-    document.getElementById('map-grid').innerHTML = DATA.LOCATIONS.map(loc => {
-      const isCurrent = loc.id === s.location;
-      const dangerStr = loc.danger === 0 ? '安全' : '⚠️'.repeat(Math.min(loc.danger, 3));
-      const cost = 10 + loc.danger * 5;
-      return `
-        <div class="map-btn ${isCurrent?'current':''}" onclick="${isCurrent?'':` UI.travel('${loc.id}')`}">
-          <div class="map-btn-name">${loc.name}</div>
-          <div class="map-btn-danger">${isCurrent?'📍当前位置':dangerStr+' · '+cost+'两'}</div>
-        </div>`;
-    }).join('');
   },
 
   renderMartialLearn() {
@@ -796,7 +801,7 @@ const UI = {
   switchTab(tab) {
     this.currentTab = tab;
     document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-      const tabs = ['actions','map','martial','quests','npcs','sects','rumors','factions','disciples','ranking','bag','titles'];
+      const tabs = ['actions','map','martial','quests','npcs','sects','rumors','factions','disciples','ranking','bag','titles','manuals','fusion','era'];
       btn.classList.toggle('active', tabs[i] === tab);
     });
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -811,11 +816,116 @@ const UI = {
       this.showShopModal();
       return;
     }
+    const s = Engine.state;
+    // 记录行动前的状态快照（用于对比变化）
+    const snapBefore = {
+      hp: s.hp, innerPower: s.innerPower, strength: s.strength,
+      agility: s.agility, swordSkill: s.swordSkill, endurance: s.endurance,
+      perception: s.perception, charm: s.charm, gold: s.gold,
+      reputation: s.reputation, morality: s.morality, evil: s.evil,
+      year: s.year, month: s.month,
+    };
+
     const result = Engine.doAction(actionId, params);
+
     if (result && !result.success && result.msg) {
       this.toast(result.msg);
+      return;
     }
+
     this.render();
+
+    // 行动成功后弹出本月纪要（排除纯UI行动）
+    const skipFeedback = ['shop', 'talk', 'event_choice'];
+    if (!skipFeedback.includes(actionId) && result && result.success !== false) {
+      setTimeout(() => this.showActionFeedback(actionId, snapBefore, result), 100);
+    }
+  },
+
+  // ── 行动反馈弹窗 ─────────────────────────────────────────
+  showActionFeedback(actionId, snapBefore, result) {
+    const s = Engine.state;
+    const actionNames = {
+      rest:'休息养伤', train:'刻苦修炼', wander:'游历江湖', work:'打工赚钱',
+      explore:'探索秘境', sect_contribute:'为门派效力', sect_promote:'申请晋升',
+    };
+    const actionName = actionNames[actionId] || actionId;
+
+    // 计算属性变化
+    const statChanges = [];
+    const statMap = {
+      hp:'气血', innerPower:'内力', strength:'力量', agility:'身法',
+      swordSkill:'剑术', endurance:'体魄', perception:'悟性',
+      charm:'魅力', gold:'银两', reputation:'声望', morality:'道德', evil:'邪气',
+    };
+    for (const [k, label] of Object.entries(statMap)) {
+      const before = snapBefore[k] || 0;
+      const after = s[k] || 0;
+      const diff = after - before;
+      if (diff !== 0) {
+        const color = diff > 0 ? 'var(--green-light)' : 'var(--red-light)';
+        const sign = diff > 0 ? '+' : '';
+        statChanges.push(`<span style="color:${color};">${label}${sign}${diff}</span>`);
+      }
+    }
+
+    // 时间变化
+    const monthsPassed = (s.year * 12 + s.month) - (snapBefore.year * 12 + snapBefore.month);
+
+    // 本次行动产生的日志（最多5条）
+    const newLogs = (result.newLogs || []).slice(-5);
+
+    // 随机事件检查（行动后30%概率）
+    let randomEvent = null;
+    if (actionId !== 'event_choice' && Math.random() < 0.3) {
+      randomEvent = Engine._triggerRandomEvent();
+    }
+
+    const html = `
+      <div class="modal-overlay" id="action-feedback-modal" style="display:flex;">
+        <div class="modal-box" style="max-width:420px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+            <div style="font-size:18px;">📋</div>
+            <div>
+              <div style="font-size:14px;color:var(--gold);">本月纪要</div>
+              <div style="font-size:10px;color:var(--text-muted);">【${actionName}】· 耗时${monthsPassed}个月 · 第${s.year}年${s.month}月</div>
+            </div>
+          </div>
+
+          ${statChanges.length > 0 ? `
+            <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:2px;padding:8px;margin-bottom:10px;">
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">属性变化</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;">${statChanges.join('')}</div>
+            </div>` : ''}
+
+          ${newLogs.length > 0 ? `
+            <div style="margin-bottom:10px;">
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">这段时间发生了……</div>
+              ${newLogs.map(l => `
+                <div style="font-size:11px;color:var(--text-dim);padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);line-height:1.5;">
+                  ${l.text}
+                </div>`).join('')}
+            </div>` : ''}
+
+          <button onclick="UI.closeFeedbackAndEvent('${randomEvent ? randomEvent.id : ''}')" style="
+            width:100%;padding:10px;border:1px solid var(--gold);color:var(--gold-light);
+            background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;margin-top:4px;">
+            ${randomEvent ? '继续 →（有奇遇！）' : '继续'}
+          </button>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  },
+
+  closeFeedbackAndEvent(eventId) {
+    const modal = document.getElementById('action-feedback-modal');
+    if (modal) modal.remove();
+    if (eventId) {
+      const event = DATA.EVENTS.find(e => e.id === eventId);
+      if (event) {
+        setTimeout(() => this.triggerEvent(event), 200);
+      }
+    }
   },
 
   showShopModal() {
@@ -1053,9 +1163,32 @@ const UI = {
 
   // ── 结局 ─────────────────────────────────────────────────
   showEnding(ending) {
-    document.getElementById('ending-name').textContent = ending.name;
-    document.getElementById('ending-desc').textContent = ending.desc;
-    document.getElementById('ending-screen').style.display = 'flex';
+    // 改为弹窗，不锁死游戏，可继续游玩
+    const existingModal = document.getElementById('ending-modal-popup');
+    if (existingModal) return;
+
+    const html = `
+      <div class="modal-overlay" id="ending-modal-popup" style="display:flex;z-index:9998;">
+        <div class="modal-box" style="border-color:var(--gold);max-width:460px;text-align:center;">
+          <div style="font-size:32px;margin-bottom:8px;">🎭</div>
+          <div style="font-size:11px;color:var(--gold);border:1px solid var(--gold);display:inline-block;padding:1px 10px;border-radius:8px;margin-bottom:10px;">结局解锁</div>
+          <div style="font-size:20px;color:var(--gold);font-weight:bold;margin-bottom:12px;">「${ending.name}」</div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.8;margin-bottom:16px;">${ending.desc}</div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="document.getElementById('ending-modal-popup').remove()" style="
+              flex:1;padding:10px;border:1px solid var(--gold);color:var(--gold-light);
+              background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
+              继续江湖之路
+            </button>
+            <button onclick="location.reload()" style="
+              flex:1;padding:10px;border:1px solid var(--border);color:var(--text-muted);
+              background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
+              重新开始
+            </button>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
   },
 
   // ── 背包面板 ─────────────────────────────────────────────
@@ -1714,6 +1847,498 @@ const UI = {
       .filter(([,v]) => v !== 0)
       .map(([k,v]) => `${nameMap[k]||k}${v>0?'+':''}${v}`)
       .join(' ');
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  F: 武学秘籍面板
+  // ══════════════════════════════════════════════════════════
+  renderManuals() {
+    const s = Engine.state;
+    const el = document.getElementById('manuals-panel');
+    if (!el) return;
+    const allManuals = DATA.MANUALS || [];
+    const collected = s.collectedManuals || [];
+    const studied = s.studiedManuals || [];
+    const studying = s.studyingManual;
+
+    let html = `<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">收集武学秘籍，研读后可领悟对应武功</div>`;
+
+    // 正在研读
+    if (studying) {
+      const m = allManuals.find(x => x.id === studying.id);
+      const cur = s.year * 12 + s.month;
+      const remaining = studying.endMonth - cur;
+      html += `
+        <div style="background:rgba(255,200,0,0.08);border:1px solid var(--gold);border-radius:2px;padding:10px;margin-bottom:12px;">
+          <div style="font-size:12px;color:var(--gold);margin-bottom:4px;">📖 正在研读：【${m?.name || studying.id}】</div>
+          <div style="font-size:11px;color:var(--text-muted);">还需 ${remaining} 个月完成</div>
+        </div>`;
+    }
+
+    // 已收集（未研读）
+    if (collected.length > 0) {
+      html += `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">── 已收集（可研读）──</div>`;
+      html += collected.map(id => {
+        const m = allManuals.find(x => x.id === id);
+        if (!m) return '';
+        const ma = DATA.MARTIAL_ARTS.find(x => x.id === m.martialId);
+        const tierColor = ['','var(--text-dim)','var(--blue)','var(--gold)'][m.tier] || 'var(--text)';
+        const canStudy = !studying;
+        return `
+          <div style="border:1px solid var(--border);border-radius:2px;padding:10px;margin-bottom:8px;background:rgba(255,255,255,0.02);">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+              <div>
+                <span style="font-size:14px;">${m.icon}</span>
+                <span style="font-size:13px;color:${tierColor};margin-left:6px;">${m.name}</span>
+                <span style="font-size:10px;color:var(--text-muted);margin-left:6px;">→ ${ma?.name || '未知武功'}</span>
+              </div>
+              <button onclick="UI.startStudyManual('${id}')" style="
+                padding:4px 10px;border:1px solid ${canStudy ? 'var(--gold)' : 'var(--border)'};
+                color:${canStudy ? 'var(--gold)' : 'var(--text-muted)'};background:none;
+                border-radius:2px;cursor:${canStudy ? 'pointer' : 'not-allowed'};font-size:11px;font-family:inherit;">
+                研读（${m.studyTime}月）
+              </button>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${m.desc}</div>
+          </div>`;
+      }).join('');
+    }
+
+    // 已研读
+    if (studied.length > 0) {
+      html += `<div style="font-size:11px;color:var(--text-muted);margin:10px 0 6px;">── 已研读完成 ──</div>`;
+      html += studied.map(id => {
+        const m = allManuals.find(x => x.id === id);
+        if (!m) return '';
+        const ma = DATA.MARTIAL_ARTS.find(x => x.id === m.martialId);
+        return `
+          <div style="border:1px solid rgba(255,255,255,0.05);border-radius:2px;padding:8px;margin-bottom:6px;opacity:0.6;">
+            <span style="font-size:12px;">${m.icon}</span>
+            <span style="font-size:12px;color:var(--text-muted);margin-left:6px;">${m.name}</span>
+            <span style="font-size:10px;color:var(--green-light);margin-left:8px;">✓ 已领悟 ${ma?.name || ''}</span>
+          </div>`;
+      }).join('');
+    }
+
+    // 可发现的秘籍提示
+    const undiscovered = allManuals.filter(m => !collected.includes(m.id) && !studied.includes(m.id));
+    if (undiscovered.length > 0) {
+      html += `
+        <div style="margin-top:12px;padding:8px;border:1px dashed var(--border);border-radius:2px;">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">── 江湖中流传的秘籍（${undiscovered.length}本未得）──</div>
+          ${undiscovered.map(m => {
+            const tierColor = ['','var(--text-muted)','var(--blue)','var(--gold)'][m.tier] || 'var(--text)';
+            return `<div style="font-size:11px;color:${tierColor};padding:3px 0;">${m.icon} ${m.name} <span style="color:var(--text-muted);font-size:10px;">（${m.locations.join('/')}）</span></div>`;
+          }).join('')}
+        </div>`;
+    }
+
+    if (collected.length === 0 && studied.length === 0) {
+      html += `<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:20px;">尚未收集到任何秘籍。<br>探索江湖、前往特殊地点，或完成事件链可获得秘籍。</div>`;
+    }
+
+    el.innerHTML = html;
+  },
+
+  startStudyManual(manualId) {
+    const result = Engine.startStudyManual(manualId);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.render();
+    this.renderManuals();
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  H: 地图扩展 — 在地图标签页中集成
+  // ══════════════════════════════════════════════════════════
+  renderMap() {
+    const s = Engine.state;
+    const el = document.getElementById('map-grid');
+    if (!el) return;
+
+    // 原有地点
+    const locations = DATA.LOCATIONS || [];
+    let html = locations.map(loc => {
+      const isCurrent = s.location === loc.id;
+      const dangerStr = loc.danger === 0 ? '安全' : '⚠️'.repeat(Math.min(loc.danger, 3));
+      const cost = 10 + loc.danger * 5;
+      return `
+        <div class="map-btn ${isCurrent ? 'current' : ''}" onclick="${isCurrent ? '' : `UI.travel('${loc.id}')`}">
+          <div class="map-btn-name">${loc.name}</div>
+          <div class="map-btn-danger">${isCurrent ? '📍当前位置' : dangerStr + ' · ' + cost + '两'}</div>
+        </div>`;
+    }).join('');
+
+    // 额外地点（H系统）
+    const extraLocs = DATA.EXTRA_LOCATIONS || [];
+    const unlocked = s.unlockedLocations || [];
+    if (extraLocs.length > 0) {
+      html += `<div style="grid-column:1/-1;font-size:11px;color:var(--text-muted);margin:10px 0 6px;border-top:1px solid var(--border);padding-top:8px;">── 特殊地点 ──</div>`;
+      html += extraLocs.map(loc => {
+        const isUnlocked = unlocked.includes(loc.id);
+        const isCurrent = s.extraLocation === loc.id;
+        const dangerColor = ['','var(--green-light)','var(--text)','var(--gold)','var(--red-light)','#ff4444'][loc.danger] || 'var(--text)';
+        if (!isUnlocked) {
+          return `
+            <div class="map-item" style="opacity:0.4;cursor:not-allowed;" title="${loc.unlockHint}">
+              <div style="font-size:18px;">🔒</div>
+              <div style="font-size:12px;color:var(--text-muted);">???</div>
+              <div style="font-size:10px;color:var(--text-muted);">${loc.unlockHint}</div>
+            </div>`;
+        }
+        return `
+          <div class="map-item ${isCurrent ? 'current' : ''}" onclick="${isCurrent ? `UI.showExtraLocationActions('${loc.id}')` : `UI.travelToExtra('${loc.id}')`}" style="border-color:${dangerColor};">
+            <div style="font-size:18px;">${loc.icon}</div>
+            <div style="font-size:12px;color:${isCurrent ? 'var(--gold)' : 'var(--text)'};">${loc.name}${isCurrent ? '（当前）' : ''}</div>
+            <div style="font-size:10px;color:var(--text-muted);">${loc.desc.slice(0,20)}…</div>
+            <div style="font-size:10px;color:${dangerColor};">危险度${'★'.repeat(loc.danger)}</div>
+          </div>`;
+      }).join('');
+    }
+
+    el.innerHTML = html;
+  },
+
+  travelToExtra(locId) {
+    const result = Engine.travelToExtraLocation(locId);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.render();
+    // 检查是否有待处理的事件链
+    this._checkPendingChains();
+  },
+
+  showExtraLocationActions(locId) {
+    const loc = DATA.EXTRA_LOCATIONS.find(l => l.id === locId);
+    if (!loc) return;
+    const actions = loc.specialActions || [];
+    const html = `
+      <div class="modal-overlay" id="extra-loc-modal" style="display:flex;">
+        <div class="modal-box" style="max-width:380px;">
+          <div style="font-size:16px;color:var(--gold);margin-bottom:4px;">${loc.icon} ${loc.name}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">${loc.desc}</div>
+          ${actions.map((a, i) => `
+            <button onclick="UI.doSpecialAction('${locId}','${a.id}')" style="
+              display:block;width:100%;padding:10px;margin-bottom:8px;
+              border:1px solid var(--border);color:var(--text);background:none;
+              border-radius:2px;cursor:pointer;font-family:inherit;text-align:left;">
+              <div style="font-size:13px;">${a.name}</div>
+              <div style="font-size:11px;color:var(--text-muted);">${a.desc}（${a.duration||1}个月）</div>
+            </button>`).join('')}
+          <button onclick="UI.closeModal('extra-loc-modal')" style="
+            width:100%;padding:8px;border:1px solid var(--border);color:var(--text-muted);
+            background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;margin-top:4px;">
+            离开
+          </button>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  },
+
+  doSpecialAction(locId, actionId) {
+    this.closeModal('extra-loc-modal');
+    const snapBefore = { ...Engine.state };
+    const result = Engine.doSpecialAction(locId, actionId);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.render();
+    // 检查是否有待处理的事件链
+    this._checkPendingChains();
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  G: 事件链弹窗
+  // ══════════════════════════════════════════════════════════
+  _checkPendingChains() {
+    const s = Engine.state;
+    const activeChains = s.activeChains || {};
+    for (const [chainId, chainState] of Object.entries(activeChains)) {
+      const chain = DATA.EVENT_CHAINS.find(c => c.id === chainId);
+      if (!chain) continue;
+      const step = chain.steps.find(st => st.id === chainState.currentStep);
+      if (step) {
+        setTimeout(() => this.showChainModal(chain, step), 300);
+        return; // 一次只显示一个
+      }
+    }
+  },
+
+  showChainModal(chain, step) {
+    const existingModal = document.getElementById('chain-modal');
+    if (existingModal) existingModal.remove();
+    const html = `
+      <div class="modal-overlay" id="chain-modal" style="display:flex;">
+        <div class="modal-box" style="max-width:420px;">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">【${chain.name}】</div>
+          <div style="font-size:14px;color:var(--gold);margin-bottom:10px;">${step.title}</div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.7;margin-bottom:14px;">${step.desc}</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            ${step.choices.map((c, i) => `
+              <button onclick="UI.handleChainChoice('${chain.id}',${i})" style="
+                padding:10px;border:1px solid var(--border);color:var(--text);background:none;
+                border-radius:2px;cursor:pointer;font-family:inherit;text-align:left;font-size:12px;">
+                ${c.text}
+              </button>`).join('')}
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  },
+
+  handleChainChoice(chainId, choiceIndex) {
+    const modal = document.getElementById('chain-modal');
+    if (modal) modal.remove();
+    const result = Engine.handleChainChoice(chainId, choiceIndex);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.render();
+    if (result.continued && result.nextStep) {
+      setTimeout(() => this.showChainModal(result.chain, result.nextStep), 400);
+    } else if (!result.continued && result.endMsg) {
+      this.toast(result.endMsg);
+    }
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  I: 武功融合面板
+  // ══════════════════════════════════════════════════════════
+  renderFusion() {
+    const s = Engine.state;
+    const el = document.getElementById('fusion-panel');
+    if (!el) return;
+    const recipes = DATA.FUSION_RECIPES || [];
+    const available = Engine.getAvailableFusions();
+    const fused = s.fusedMartials || [];
+
+    let html = `<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">将两门武功融为一体，化为更强的绝世武学</div>`;
+
+    if (available.length > 0) {
+      html += `<div style="font-size:11px;color:var(--gold);margin-bottom:8px;">── 可融合配方 ──</div>`;
+      html += available.map(recipe => {
+        const ma1 = DATA.MARTIAL_ARTS.find(m => m.id === recipe.source1);
+        const ma2 = DATA.MARTIAL_ARTS.find(m => m.id === recipe.source2);
+        const result = recipe.result;
+        const reqText = Object.entries(recipe.require || {}).map(([k,v]) => {
+          const names = { perception:'悟性', innerPower:'内力', swordSkill:'剑术', agility:'身法', strength:'力量', endurance:'体魄' };
+          const cur = s[k] || 0;
+          const ok = cur >= v;
+          return `<span style="color:${ok ? 'var(--green-light)' : 'var(--red-light)'};">${names[k]||k}${v}</span>`;
+        }).join(' ');
+        const canFuse = Object.entries(recipe.require || {}).every(([k,v]) => (s[k]||0) >= v) &&
+                        (!recipe.cost?.gold || s.gold >= recipe.cost.gold);
+        return `
+          <div style="border:1px solid var(--gold);border-radius:2px;padding:12px;margin-bottom:10px;background:rgba(255,200,0,0.04);">
+            <div style="font-size:13px;color:var(--gold);margin-bottom:6px;">⚗️ ${recipe.name}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">
+              【${ma1?.name}】+ 【${ma2?.name}】→ 【${result.name}】
+            </div>
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;">${result.desc}</div>
+            <div style="font-size:11px;margin-bottom:8px;">需要：${reqText}${recipe.cost?.gold ? ` <span style="color:var(--gold);">银两${recipe.cost.gold}</span>` : ''}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">耗时：${recipe.studyTime||6}个月</div>
+            <button onclick="UI.doFusion('${recipe.id}')" style="
+              padding:8px 16px;border:1px solid ${canFuse ? 'var(--gold)' : 'var(--border)'};
+              color:${canFuse ? 'var(--gold)' : 'var(--text-muted)'};background:none;
+              border-radius:2px;cursor:${canFuse ? 'pointer' : 'not-allowed'};font-family:inherit;font-size:12px;">
+              ${canFuse ? '开始融合' : '条件不足'}
+            </button>
+          </div>`;
+      }).join('');
+    }
+
+    // 未解锁的配方
+    const locked = recipes.filter(r => {
+      if (fused.includes(r.id)) return false;
+      if (available.find(a => a.id === r.id)) return false;
+      return true;
+    });
+    if (locked.length > 0) {
+      html += `<div style="font-size:11px;color:var(--text-muted);margin:10px 0 6px;">── 尚未满足条件 ──</div>`;
+      html += locked.map(recipe => {
+        const ma1 = DATA.MARTIAL_ARTS.find(m => m.id === recipe.source1);
+        const ma2 = DATA.MARTIAL_ARTS.find(m => m.id === recipe.source2);
+        const has1 = (s.martialArts || []).find(m => m.id === recipe.source1);
+        const has2 = (s.martialArts || []).find(m => m.id === recipe.source2);
+        return `
+          <div style="border:1px solid var(--border);border-radius:2px;padding:10px;margin-bottom:8px;opacity:0.5;">
+            <div style="font-size:12px;color:var(--text-muted);">⚗️ ${recipe.name}</div>
+            <div style="font-size:11px;color:var(--text-muted);">
+              <span style="color:${has1?'var(--green-light)':'var(--red-light)'};">【${ma1?.name||recipe.source1}】</span>
+              + <span style="color:${has2?'var(--green-light)':'var(--red-light)'};">【${ma2?.name||recipe.source2}】</span>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    // 已融合
+    if (fused.length > 0) {
+      html += `<div style="font-size:11px;color:var(--text-muted);margin:10px 0 6px;">── 已完成融合 ──</div>`;
+      html += fused.map(id => {
+        const recipe = recipes.find(r => r.id === id);
+        if (!recipe) return '';
+        return `
+          <div style="border:1px solid rgba(255,255,255,0.05);border-radius:2px;padding:8px;margin-bottom:6px;opacity:0.6;">
+            <span style="font-size:12px;color:var(--text-muted);">✓ ${recipe.name} → 【${recipe.result.name}】</span>
+          </div>`;
+      }).join('');
+    }
+
+    if (available.length === 0 && locked.length === 0 && fused.length === 0) {
+      html += `<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:20px;">学习更多武功后，可在此融合为绝世武学。</div>`;
+    }
+
+    el.innerHTML = html;
+  },
+
+  doFusion(recipeId) {
+    const result = Engine.fuseMartial(recipeId);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.render();
+    this.renderFusion();
+    // 显示融合成功弹窗
+    const r = result.result;
+    const html = `
+      <div class="modal-overlay" id="fusion-success-modal" style="display:flex;">
+        <div class="modal-box" style="max-width:380px;text-align:center;">
+          <div style="font-size:32px;margin-bottom:8px;">⚗️</div>
+          <div style="font-size:16px;color:var(--gold);margin-bottom:8px;">武功融合成功！</div>
+          <div style="font-size:14px;color:var(--text);margin-bottom:6px;">【${r.name}】</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">${r.desc}</div>
+          <button onclick="UI.closeModal('fusion-success-modal')" style="
+            padding:10px 24px;border:1px solid var(--gold);color:var(--gold);
+            background:none;border-radius:2px;cursor:pointer;font-family:inherit;">
+            太好了！
+          </button>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  },
+
+  // ══════════════════════════════════════════════════════════
+  //  J: 年代事件面板
+  // ══════════════════════════════════════════════════════════
+  renderEra() {
+    const s = Engine.state;
+    const el = document.getElementById('era-panel');
+    if (!el) return;
+    const eraEvents = DATA.ERA_EVENTS || [];
+    const triggered = s.triggeredEraEvents || [];
+    const pending = s.pendingEraEvent;
+
+    let html = `<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">江湖大事，随时间推移而发生，影响整个武林格局</div>`;
+
+    // 待处理的年代事件
+    if (pending) {
+      const era = eraEvents.find(e => e.id === pending);
+      if (era) {
+        html += `
+          <div style="background:rgba(255,100,0,0.08);border:1px solid var(--red-light);border-radius:2px;padding:12px;margin-bottom:12px;">
+            <div style="font-size:13px;color:var(--red-light);margin-bottom:6px;">⚠️ 江湖大事正在发生！</div>
+            <div style="font-size:14px;color:var(--gold);margin-bottom:8px;">${era.name}</div>
+            <div style="font-size:12px;color:var(--text-dim);line-height:1.7;margin-bottom:10px;">${era.detail || era.desc}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">你将如何应对？</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              ${era.choices.map((c, i) => {
+                const condOk = !c.condition || Object.entries(c.condition).every(([k,v]) => (s[k]||0) >= v);
+                return `
+                  <button onclick="${condOk ? `UI.handleEraChoice('${era.id}',${i})` : ''}" style="
+                    padding:10px;border:1px solid ${condOk ? 'var(--border)' : 'rgba(255,255,255,0.05)'};
+                    color:${condOk ? 'var(--text)' : 'var(--text-muted)'};background:none;
+                    border-radius:2px;cursor:${condOk ? 'pointer' : 'not-allowed'};
+                    font-family:inherit;text-align:left;font-size:12px;
+                    opacity:${condOk ? '1' : '0.4'};">
+                    ${c.text}
+                    ${c.condition ? `<span style="font-size:10px;color:var(--text-muted);">（需要条件）</span>` : ''}
+                  </button>`;
+              }).join('')}
+            </div>
+          </div>`;
+      }
+    }
+
+    // 历史年代事件
+    const pastEvents = eraEvents.filter(e => {
+      const id = e.id;
+      return triggered.some(t => t === id || t.startsWith(id + '_y'));
+    });
+    if (pastEvents.length > 0) {
+      html += `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">── 已发生的江湖大事 ──</div>`;
+      html += pastEvents.map(era => {
+        const typeColor = { world:'var(--text-muted)', opportunity:'var(--gold)', crisis:'var(--red-light)' }[era.type] || 'var(--text)';
+        const typeIcon = { world:'🌍', opportunity:'⭐', crisis:'⚠️' }[era.type] || '📣';
+        return `
+          <div style="border:1px solid var(--border);border-radius:2px;padding:10px;margin-bottom:8px;opacity:0.7;">
+            <div style="font-size:12px;color:${typeColor};">${typeIcon} ${era.name}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${era.desc}</div>
+          </div>`;
+      }).join('');
+    }
+
+    // 未来事件预告
+    const upcoming = eraEvents.filter(e => {
+      if (triggered.some(t => t === e.id || t.startsWith(e.id + '_y'))) return false;
+      return e.triggerYear > s.year;
+    }).sort((a,b) => a.triggerYear - b.triggerYear);
+    if (upcoming.length > 0) {
+      html += `<div style="font-size:11px;color:var(--text-muted);margin:10px 0 6px;">── 江湖传言（未来大事）──</div>`;
+      html += upcoming.slice(0,3).map(era => {
+        const typeIcon = { world:'🌍', opportunity:'⭐', crisis:'⚠️' }[era.type] || '📣';
+        return `
+          <div style="border:1px dashed var(--border);border-radius:2px;padding:8px;margin-bottom:6px;opacity:0.5;">
+            <div style="font-size:11px;color:var(--text-muted);">${typeIcon} 第${era.triggerYear}年前后：${era.name}</div>
+          </div>`;
+      }).join('');
+    }
+
+    if (!pending && pastEvents.length === 0) {
+      html += `<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:20px;">江湖风平浪静，大事尚未发生……</div>`;
+    }
+
+    el.innerHTML = html;
+  },
+
+  handleEraChoice(eraId, choiceIndex) {
+    const result = Engine.handleEraEventChoice(eraId, choiceIndex);
+    if (!result.success) { this.toast(result.msg); return; }
+    this.render();
+    this.renderEra();
+    if (result.choice) {
+      this.toast(`${result.choice.text}`, 3000);
+    }
+  },
+
+  // ── 年代事件弹窗（自动弹出）──────────────────────────────
+  showEraEventModal(era) {
+    const s = Engine.state;
+    const existingModal = document.getElementById('era-event-modal');
+    if (existingModal) existingModal.remove();
+    const typeIcon = { world:'🌍', opportunity:'⭐', crisis:'⚠️' }[era.type] || '📣';
+    const typeColor = { world:'var(--text)', opportunity:'var(--gold)', crisis:'var(--red-light)' }[era.type] || 'var(--text)';
+    const html = `
+      <div class="modal-overlay" id="era-event-modal" style="display:flex;">
+        <div class="modal-box" style="max-width:440px;">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">江湖大事 · 第${s.year}年</div>
+          <div style="font-size:18px;color:${typeColor};margin-bottom:8px;">${typeIcon} ${era.name}</div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.7;margin-bottom:12px;">${era.detail || era.desc}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">你将如何应对？</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${era.choices.map((c, i) => {
+              const condOk = !c.condition || Object.entries(c.condition).every(([k,v]) => (s[k]||0) >= v);
+              return `
+                <button onclick="${condOk ? `UI.handleEraChoiceFromModal('${era.id}',${i})` : ''}" style="
+                  padding:10px;border:1px solid ${condOk ? 'var(--border)' : 'rgba(255,255,255,0.05)'};
+                  color:${condOk ? 'var(--text)' : 'var(--text-muted)'};background:none;
+                  border-radius:2px;cursor:${condOk ? 'pointer' : 'not-allowed'};
+                  font-family:inherit;text-align:left;font-size:12px;
+                  opacity:${condOk ? '1' : '0.4'};">
+                  ${c.text}
+                </button>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  },
+
+  handleEraChoiceFromModal(eraId, choiceIndex) {
+    const modal = document.getElementById('era-event-modal');
+    if (modal) modal.remove();
+    this.handleEraChoice(eraId, choiceIndex);
   },
 
 };

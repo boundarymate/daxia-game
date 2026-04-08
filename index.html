@@ -335,6 +335,9 @@ body {
 .map-btn.current { border-color:var(--gold); background:var(--gold-dim); }
 .map-btn-name { font-size:12px; color:var(--text); }
 .map-btn-danger { font-size:10px; color:var(--text-muted); margin-top:2px; }
+.map-item { border:1px solid var(--border); border-radius:2px; padding:8px; cursor:pointer; transition:border-color .15s; }
+.map-item:hover { border-color:var(--border-h); background:var(--bg-hover); }
+.map-item.current { border-color:var(--gold); background:var(--gold-dim); }
 
 /* 标签页 */
 .tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:12px; }
@@ -666,6 +669,9 @@ body {
         <button class="tab-btn" onclick="UI.switchTab('ranking')">排行</button>
         <button class="tab-btn" onclick="UI.switchTab('bag')">背包</button>
         <button class="tab-btn" onclick="UI.switchTab('titles')">称号</button>
+        <button class="tab-btn" onclick="UI.switchTab('manuals')">秘籍</button>
+        <button class="tab-btn" onclick="UI.switchTab('fusion')">融合</button>
+        <button class="tab-btn" onclick="UI.switchTab('era')">年代</button>
       </div>
 
       <!-- 行动 -->
@@ -728,6 +734,21 @@ body {
       <!-- 排行榜 -->
       <div class="tab-content" id="tab-ranking">
         <div id="ranking-panel"></div>
+      </div>
+
+      <!-- F: 武学秘籍 -->
+      <div class="tab-content" id="tab-manuals">
+        <div id="manuals-panel"></div>
+      </div>
+
+      <!-- I: 武功融合 -->
+      <div class="tab-content" id="tab-fusion">
+        <div id="fusion-panel"></div>
+      </div>
+
+      <!-- J: 年代事件 -->
+      <div class="tab-content" id="tab-era">
+        <div id="era-panel"></div>
       </div>
     </div>
   </div>

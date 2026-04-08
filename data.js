@@ -828,4 +828,71 @@ ENDINGS: [
     desc:'你找到了心爱之人，携手归隐田园，过上了平静幸福的生活。' },
 ],
 
+
+// ─────────────────────────────────────────────
+//  D: NPC 好感度特殊规则
+//  不同NPC有不同的好感提升加成条件
+// ─────────────────────────────────────────────
+NPC_FAVOR_RULES: {
+  'n_guojing': {
+    statBonus: {
+      morality:    { threshold: 60, gain: 5, note: '侠义之心令郭大侠赞赏' },
+      reputation:  { threshold: 50, gain: 3, note: '声名在外' },
+    }
+  },
+  'n_huangrong': {
+    statBonus: {
+      perception:  { threshold: 40, gain: 4, note: '聪慧令黄蓉刮目相看' },
+      charm:       { threshold: 30, gain: 3, note: '谈吐不凡' },
+    }
+  },
+  'n_yangguo': {
+    statBonus: {
+      swordSkill:  { threshold: 50, gain: 5, note: '剑术令杨过另眼相待' },
+      agility:     { threshold: 40, gain: 3, note: '身法矫健' },
+    }
+  },
+  'n_jinlun': {
+    statBonus: {
+      innerPower:  { threshold: 60, gain: 5, note: '深厚内力令法王重视' },
+      evil:        { threshold: 20, gain: 4, note: '邪道中人惺惺相惜' },
+    }
+  },
+  'n_xuzhu': {
+    statBonus: {
+      morality:    { threshold: 70, gain: 5, note: '佛心令虚竹大师欣慰' },
+      innerPower:  { threshold: 80, gain: 4, note: '内力深厚令大师刮目' },
+    }
+  },
+  'n_tianshan': {
+    statBonus: {
+      agility:     { threshold: 60, gain: 5, note: '轻功令童姥感兴趣' },
+      innerPower:  { threshold: 70, gain: 4, note: '内力深厚' },
+    }
+  },
+  'n_wanderer': {
+    statBonus: {
+      swordSkill:  { threshold: 30, gain: 4, note: '剑术相当，惺惺相惜' },
+    }
+  },
+  'n_monk': {
+    statBonus: {
+      morality:    { threshold: 50, gain: 4, note: '善心令慧明和尚亲近' },
+      endurance:   { threshold: 40, gain: 2, note: '体魄强健' },
+    }
+  },
+  'n_beauty': {
+    statBonus: {
+      charm:       { threshold: 25, gain: 4, note: '仪表令林姑娘心动' },
+      morality:    { threshold: 55, gain: 3, note: '侠义之心' },
+    }
+  },
+  'n_evil_man': {
+    statBonus: {
+      evil:        { threshold: 15, gain: 5, note: '同道中人' },
+      strength:    { threshold: 40, gain: 3, note: '强横实力令其敬畏' },
+    }
+  },
+},
+
 };

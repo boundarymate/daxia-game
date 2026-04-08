@@ -275,7 +275,11 @@ const UI = {
     document.getElementById('top-inner').textContent = s.innerPower;
     document.getElementById('top-rep').textContent = s.reputation;
     document.getElementById('top-gold').textContent = s.gold;
-    document.getElementById('top-energy').textContent = s.energy;
+    // B: 体力显示带颜色警告
+    const energyEl = document.getElementById('top-energy');
+    const maxEn = s.maxEnergy || 100;
+    energyEl.textContent = `${s.energy}/${maxEn}`;
+    energyEl.style.color = s.energy < 25 ? 'var(--red-light)' : s.energy < 50 ? '#f39c12' : '';
     document.getElementById('top-time').textContent = `第${s.year}年${s.month}月 · 年龄${s.age}岁`;
 
     // 属性条
@@ -326,7 +330,17 @@ const UI = {
       { key:'charm',      label:'魅力', max:200,       cls:'chm-fill' },
       { key:'swordSkill', label:'剑术', max:300,       cls:'swd-fill' },
     ];
-    document.getElementById('stat-bars').innerHTML = stats.map(st => {
+    // B: 体力条单独渲染，带颜色警告
+    const maxEnergy = s.maxEnergy || 100;
+    const energyPct = Math.min(100, (s.energy / maxEnergy) * 100);
+    const energyColor = s.energy < 25 ? '#e74c3c' : s.energy < 50 ? '#f39c12' : '#2ecc71';
+    const energyBar = `
+      <div class="stat-row">
+        <span class="stat-label">体力</span>
+        <div class="stat-bar"><div class="stat-fill" style="width:${energyPct}%;background:${energyColor};transition:width .3s;"></div></div>
+        <span class="stat-val" style="color:${energyColor};">${s.energy}</span>
+      </div>`;
+    document.getElementById('stat-bars').innerHTML = energyBar + stats.map(st => {
       const val = s[st.key] || 0;
       const pct = Math.min(100, (val / st.max) * 100);
       return `
@@ -349,10 +363,22 @@ const UI = {
       const ma = DATA.MARTIAL_ARTS.find(x => x.id === m.id);
       if (!ma) return '';
       const typeMap = { inner:'内功', sword:'剑法', palm:'掌法', qinggong:'轻功', hidden:'暗器', evil:'邪功' };
+      // F: 显示武功等级和经验进度
+      const level = m.level || 1;
+      const exp = m.exp || 0;
+      const needed = level * 10;
+      const expPct = level >= 10 ? 100 : Math.min(100, (exp / needed) * 100);
+      const levelColor = level >= 8 ? 'var(--gold-light)' : level >= 5 ? 'var(--green-light)' : 'var(--text-dim)';
       return `
         <div class="martial-item">
-          <div class="martial-name">${ma.name}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="martial-name">${ma.name}</div>
+            <div style="font-size:10px;color:${levelColor};font-weight:700;">第${level}层${level>=10?'·满':''}</div>
+          </div>
           <div class="martial-type">${typeMap[ma.type]||ma.type} · ${'★'.repeat(ma.tier)}</div>
+          <div style="height:3px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:4px;">
+            <div style="height:100%;width:${expPct}%;background:${levelColor};border-radius:2px;transition:width .3s;"></div>
+          </div>
         </div>`;
     }).join('');
   },

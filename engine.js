@@ -2547,19 +2547,38 @@ const Engine = {
     const s = this.state;
     // 计算玩家战力，动态插入排行
     const myPower = this._calcCombatPower();
-    const list = DATA.RANKING_LIST.map(r => ({
+    const npcList = DATA.RANKING_LIST.map(r => ({
       ...r,
+      originalRank: r.rank,
       defeated: s.rankingDefeated.includes(r.rank),
+      isPlayer: false,
     }));
 
+    // 构造玩家条目
+    const playerEntry = {
+      name: s.name || '侠客',
+      title: s.titles && s.titles.length > 0
+        ? (DATA.TITLES || []).find(t => t.id === s.titles[s.titles.length - 1])?.name || '无名之辈'
+        : '无名之辈',
+      power: myPower,
+      align: s.morality > 20 ? 'good' : s.evil > 20 ? 'evil' : 'neutral',
+      desc: `你自己`,
+      npcId: null,
+      defeated: false,
+      isPlayer: true,
+    };
+
+    // 将玩家插入到合适位置，按战力降序排列
+    const combined = [...npcList, playerEntry].sort((a, b) => b.power - a.power);
+
+    // 重新编号
+    combined.forEach((entry, i) => { entry.rank = i + 1; });
+
     // 玩家排名
-    let playerRank = list.length + 1;
-    for (let i = 0; i < list.length; i++) {
-      if (myPower >= list[i].power) { playerRank = list[i].rank; break; }
-    }
+    const playerRank = combined.find(e => e.isPlayer)?.rank ?? combined.length + 1;
     s.playerRank = playerRank;
 
-    return { list, myPower, playerRank };
+    return { list: combined, myPower, playerRank };
   },
 
   challengeRanking(rank) {

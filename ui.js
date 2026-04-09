@@ -2201,16 +2201,24 @@ const UI = {
     html += list.map(entry => {
       const col = alignColor[entry.align] || 'var(--text-dim)';
       const canChallenge = !entry.defeated && myPower > entry.power * 0.3;
+      const isPlayer = !!entry.isPlayer;
+      const borderColor = isPlayer ? 'var(--gold)' : entry.defeated ? 'var(--green)' : 'var(--border)';
+      const bgColor = isPlayer ? 'rgba(255,200,0,0.08)' : 'var(--bg-card)';
       return `
-        <div style="padding:8px;background:var(--bg-card);border:1px solid ${entry.defeated?'var(--green)':'var(--border)'};border-radius:2px;margin-bottom:6px;display:flex;align-items:center;gap:8px;">
+        <div style="padding:8px;background:${bgColor};border:1px solid ${borderColor};border-radius:2px;margin-bottom:6px;display:flex;align-items:center;gap:8px;">
           <div style="font-size:16px;color:var(--gold);font-weight:bold;min-width:24px;text-align:center;">${entry.rank}</div>
           <div style="flex:1;">
-            <div style="font-size:12px;color:var(--gold-light);">${entry.name} <span style="font-size:10px;color:${col};">「${entry.title}」</span> ${entry.defeated?'<span style="font-size:9px;color:var(--green);border:1px solid var(--green);padding:0 4px;border-radius:8px;">已击败</span>':''}</div>
+            <div style="font-size:12px;color:${isPlayer?'var(--gold)':'var(--gold-light)'};">
+              ${isPlayer ? '⭐ ' : ''}${entry.name}
+              <span style="font-size:10px;color:${col};">「${entry.title}」</span>
+              ${isPlayer ? '<span style="font-size:9px;color:var(--gold);border:1px solid var(--gold);padding:0 4px;border-radius:8px;">你</span>' : ''}
+              ${entry.defeated ? '<span style="font-size:9px;color:var(--green);border:1px solid var(--green);padding:0 4px;border-radius:8px;">已击败</span>' : ''}
+            </div>
             <div style="font-size:10px;color:var(--text-dim);">${entry.desc}</div>
             <div style="font-size:10px;color:var(--text-muted);">战力：${entry.power}</div>
           </div>
-          ${!entry.defeated && entry.npcId !== null ? `
-            <button onclick="UI.challengeRanking(${entry.rank})" style="
+          ${!isPlayer && !entry.defeated && entry.npcId !== null ? `
+            <button onclick="UI.challengeRanking(${entry.originalRank ?? entry.rank})" style="
               padding:5px 10px;border:1px solid ${canChallenge?'var(--red-light)':'var(--border)'};
               color:${canChallenge?'var(--red-light)':'var(--text-muted)'};
               background:none;border-radius:2px;cursor:${canChallenge?'pointer':'not-allowed'};

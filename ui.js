@@ -341,6 +341,41 @@ const UI = {
   },
 
   // ── 统一弹窗队列管理 ─────────────────────────────────────
+
+  // 通过 id 检测是否有弹窗打开
+  // 静态元素（index.html 中存在）需检查 display !== 'none'
+  // 动态元素（JS 插入）只要存在就算打开
+  _hasOpenModal() {
+    // 静态弹窗：用 display 判断
+    const staticIds = ['event-modal', 'fight-move-modal', 'npc-modal'];
+    for (const id of staticIds) {
+      const el = document.getElementById(id);
+      if (el && el.style.display !== 'none' && el.style.display !== '') return true;
+    }
+    // 动态弹窗：存在即打开
+    const dynamicIds = [
+      'event-result-modal',
+      'hidden-event-modal',
+      'era-event-modal',
+      'chain-modal',
+      'breakthrough-modal', 'bt-result-modal',
+      'rich-event-modal', 'rich-event-result-modal',
+      'action-feedback-modal',
+      'fight-result-modal',
+      'rest-modal', 'shop-modal',
+      'extra-ending-modal', 'ending-modal-popup',
+    ];
+    return dynamicIds.some(id => !!document.getElementById(id));
+  },
+
+  // 关闭指定弹窗并触发队列（统一关闭入口）
+  _closeAndNext(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) modal.remove();
+    this.render();
+    this._processModalQueue();
+  },
+
   _queuePendingModals() {
     const s = Engine.state;
     if (!this._modalQueue) this._modalQueue = [];
@@ -360,11 +395,13 @@ const UI = {
     // 收集所有待显示的弹窗（按优先级排序）
     const candidates = [];
 
-    // 随机事件（最高优先级）
+    // 随机事件（最高优先级）——用时间戳保证每次都是新 key，不被 shownKeys 过滤
     if (this.pendingEvent) {
-      candidates.push({ key: 'event_' + (this.pendingEvent.id || 'rand'), fn: () => {
+      const evKey = 'event_' + (this.pendingEvent.id || 'rand') + '_' + (this._pendingEventTs || Date.now());
+      candidates.push({ key: evKey, fn: () => {
         const ev = this.pendingEvent;
         this.pendingEvent = null;
+        this._pendingEventTs = null;
         this.showEventModal(ev);
       }});
     }
@@ -374,7 +411,7 @@ const UI = {
     if (pendingHE) {
       candidates.push({ key: 'he_' + pendingHE.id, fn: () => this.showHiddenEventModal(pendingHE) });
     } else {
-      this._modalShownKeys.delete && [...this._modalShownKeys].filter(k => k.startsWith('he_')).forEach(k => this._modalShownKeys.delete(k));
+      [...this._modalShownKeys].filter(k => k.startsWith('he_')).forEach(k => this._modalShownKeys.delete(k));
     }
 
     // J: 年代事件
@@ -406,9 +443,7 @@ const UI = {
     if (newCandidates.length === 0) return;
 
     // 如果当前有弹窗正在显示，加入队列等待
-    const hasOpenModal = document.querySelector('.modal-overlay[style*="flex"]');
-    if (hasOpenModal) {
-      // 把新的候选加入队列（去重）
+    if (this._hasOpenModal()) {
       newCandidates.forEach(c => {
         if (!this._modalQueue.find(q => q.key === c.key)) {
           this._modalQueue.push(c);
@@ -425,15 +460,21 @@ const UI = {
 
   // 弹窗关闭后调用，显示队列中的下一个
   _processModalQueue() {
-    if (!this._modalQueue || this._modalQueue.length === 0) return;
-    const hasOpenModal = document.querySelector('.modal-overlay[style*="flex"]');
-    if (hasOpenModal) return;
-    const next = this._modalQueue.shift();
-    if (next) {
-      if (!this._modalShownKeys) this._modalShownKeys = new Set();
-      this._modalShownKeys.add(next.key);
-      setTimeout(() => next.fn(), 200);
-    }
+    // 用 setTimeout 确保当前弹窗 DOM 已被移除
+    setTimeout(() => {
+      if (this._hasOpenModal()) return;
+      if (!this._modalQueue || this._modalQueue.length === 0) {
+        // 队列空了也重新检查 state 里是否有新的待弹窗
+        this._queuePendingModals();
+        return;
+      }
+      const next = this._modalQueue.shift();
+      if (next) {
+        if (!this._modalShownKeys) this._modalShownKeys = new Set();
+        this._modalShownKeys.add(next.key);
+        setTimeout(() => next.fn(), 150);
+      }
+    }, 50);
   },
 
   // ── 天气显示 ─────────────────────────────────────────────
@@ -1242,11 +1283,8 @@ const UI = {
   closeFeedbackModal() {
     const modal = document.getElementById('action-feedback-modal');
     if (modal) modal.remove();
-    // 关闭后触发弹窗队列（统一处理所有待弹窗）
-    setTimeout(() => {
-      this.render();
-      this._processModalQueue();
-    }, 150);
+    this.render();
+    this._processModalQueue();
   },
 
   showShopModal() {
@@ -1499,17 +1537,14 @@ const UI = {
 
   // ── 随机事件 ─────────────────────────────────────────────
   checkRandomEvent() {
-    if (this.pendingEvent) {
-      // 如果 feedback 弹窗还在，等它关闭后再弹（closeFeedbackModal 会处理）
-      if (document.getElementById('action-feedback-modal')) return;
-      this.showEventModal(this.pendingEvent);
-      this.pendingEvent = null;
-    }
+    // 已由 _queuePendingModals 统一处理，此方法保留为空以兼容旧调用
   },
 
   triggerEvent(event) {
+    // 入队而不是直接弹出，避免与其他弹窗冲突
     this.pendingEvent = event;
-    this.showEventModal(event);
+    this._pendingEventTs = Date.now();
+    this._queuePendingModals();
   },
 
   showEventModal(event) {
@@ -1572,7 +1607,7 @@ const UI = {
                 <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">获得效果</div>
                 <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;">${changes.join('')}</div>
               </div>` : ''}
-            <button onclick="document.getElementById('event-result-modal').remove()" style="
+            <button onclick="UI._closeAndNext('event-result-modal')" style="
               width:100%;padding:10px;border:1px solid var(--gold);color:var(--gold-light);
               background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
               知道了
@@ -1580,6 +1615,9 @@ const UI = {
           </div>
         </div>`;
       document.body.insertAdjacentHTML('beforeend', html);
+    } else {
+      // 事件处理失败，直接推进队列
+      this._processModalQueue();
     }
   },
 
@@ -2021,9 +2059,10 @@ const UI = {
     const modal = document.getElementById('hidden-event-modal');
     if (modal) modal.remove();
     const result = Engine.resolveHiddenEvent(eventId, choiceIdx);
-    if (!result.success) { this.toast(result.msg || '无法选择'); return; }
+    if (!result.success) { this.toast(result.msg || '无法选择'); this._processModalQueue(); return; }
     this.toast(result.msgs.slice(0, 2).join('，'));
     this.render();
+    this._processModalQueue();
   },
 
   // ════════════════════════════════════════════════════════════
@@ -2516,12 +2555,13 @@ const UI = {
     const modal = document.getElementById('chain-modal');
     if (modal) modal.remove();
     const result = Engine.handleChainChoice(chainId, choiceIndex);
-    if (!result.success) { this.toast(result.msg); return; }
+    if (!result.success) { this.toast(result.msg); this._processModalQueue(); return; }
     this.render();
     if (result.continued && result.nextStep) {
-      setTimeout(() => this.showChainModal(result.chain, result.nextStep), 400);
-    } else if (!result.continued && result.endMsg) {
-      this.toast(result.endMsg);
+      setTimeout(() => this.showChainModal(result.chain, result.nextStep), 300);
+    } else {
+      if (result.endMsg) this.toast(result.endMsg);
+      this._processModalQueue();
     }
   },
 
@@ -2769,6 +2809,7 @@ const UI = {
     const modal = document.getElementById('era-event-modal');
     if (modal) modal.remove();
     this.handleEraChoice(eraId, choiceIndex);
+    this._processModalQueue();
   },
 
   // ══════════════════════════════════════════════════════════
@@ -2848,7 +2889,7 @@ const UI = {
           <div style="font-size:12px;color:var(--text-dim);line-height:1.8;margin-bottom:16px;">
             ${isSuccess ? `你成功踏入【${bt.name}】境界，武学修为大进！` : `真气逆流，突破失败，你受了内伤。`}
           </div>
-          <button onclick="document.getElementById('bt-result-modal').remove();UI.render();" style="
+          <button onclick="UI._closeAndNext('bt-result-modal')" style="
             width:100%;padding:10px;border:1px solid var(--gold);color:var(--gold-light);
             background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
             知道了
@@ -2864,6 +2905,7 @@ const UI = {
     if (modal) modal.remove();
     Engine.skipBreakthrough(btId);
     this.render();
+    this._processModalQueue();
   },
 
   // ══════════════════════════════════════════════════════════
@@ -2951,7 +2993,7 @@ const UI = {
                 <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">获得效果</div>
                 <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;">${changes.join('')}</div>
               </div>` : ''}
-            <button onclick="document.getElementById('rich-event-result-modal').remove();UI.render();" style="
+            <button onclick="UI._closeAndNext('rich-event-result-modal')" style="
               width:100%;padding:10px;border:1px solid var(--gold);color:var(--gold-light);
               background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;">
               知道了

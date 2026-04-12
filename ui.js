@@ -2492,7 +2492,7 @@ const UI = {
               <div style="font-size:13px;">${a.name}</div>
               <div style="font-size:11px;color:var(--text-muted);">${a.desc}（${a.duration||1}个月）</div>
             </button>`).join('')}
-          <button onclick="UI.closeModal('extra-loc-modal')" style="
+          <button onclick="document.getElementById('extra-loc-modal').remove()" style="
             width:100%;padding:8px;border:1px solid var(--border);color:var(--text-muted);
             background:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:12px;margin-top:4px;">
             离开
@@ -2503,7 +2503,8 @@ const UI = {
   },
 
   doSpecialAction(locId, actionId) {
-    this.closeModal('extra-loc-modal');
+    const modal = document.getElementById('extra-loc-modal');
+    if (modal) modal.remove();
     const snapBefore = { ...Engine.state };
     const result = Engine.doSpecialAction(locId, actionId);
     if (!result.success) { this.toast(result.msg); return; }

@@ -2670,7 +2670,7 @@ const UI = {
           <div style="font-size:16px;color:var(--gold);margin-bottom:8px;">武功融合成功！</div>
           <div style="font-size:14px;color:var(--text);margin-bottom:6px;">【${r.name}】</div>
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">${r.desc}</div>
-          <button onclick="UI.closeModal('fusion-success-modal')" style="
+          <button onclick="document.getElementById('fusion-success-modal').remove()" style="
             padding:10px 24px;border:1px solid var(--gold);color:var(--gold);
             background:none;border-radius:2px;cursor:pointer;font-family:inherit;">
             太好了！

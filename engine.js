@@ -2101,7 +2101,6 @@ const Engine = {
       return { success:true, won:true, hpLoss, expGain, moveDesc, counterMult };
     } else {
       s.battlesLost++;
-      s.hp = Math.max(1, s.hp - hpLoss);
       this.addLog(`${moveDesc}。你不敌${npc.name}，败退而走，损失气血${hpLoss}点。`, 'danger');
       return { success:true, won:false, hpLoss, moveDesc, counterMult };
     }
